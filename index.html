@@ -1,0 +1,2833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Parker Model — WebGL Prototype</title>
+<style>
+  @font-face {
+    font-family: 'Hex Franklin';
+    src: url('HEX Franklin v0.3 - Bold.otf') format('opentype');
+    font-weight: 700;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Condensed';
+    src: url('HEX Franklin v0.3 Condensed - Extrabold.otf') format('opentype');
+    font-weight: 800;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin X Condensed';
+    src: url('HEX Franklin v0.3 X Condensed - Extrabold.otf') format('opentype');
+    font-weight: 800;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Medium';
+    src: url('HEX Franklin v0.3 - Medium.otf') format('opentype');   /* drop this file in to activate */
+    font-weight: 500;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Regular';
+    src: url('HEX Franklin v0.3 - Regular.otf') format('opentype');  /* drop this file in to activate */
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Caslon Ionic';
+    src: url('Caslon Ionic-Regular.otf') format('opentype');
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Caslon Ionic';
+    src: url('Caslon Ionic-Bold.otf') format('opentype');
+    font-weight: 700;
+    font-display: swap;
+  }
+
+  :root {
+    --ui-fg: #ffffff;
+    --ui-bg: rgba(20, 14, 60, 0.55);
+    --ui-line: rgba(255,255,255,0.18);
+    --accent: #FF5A00;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: 'Hex Franklin', 'Arial Narrow', system-ui, sans-serif;
+    background: #654CFF;
+    overflow-x: hidden;
+    color: var(--ui-fg);
+  }
+
+  /* Fixed WebGL canvas behind everything */
+  #stage {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+  }
+  #stage canvas { display: block; }
+
+  /* ---- Content layer (scrolls; drives the scene narrative) ---- */
+  :root { --serif: 'Caslon Ionic', 'Big Caslon', 'Georgia', serif;
+          --cond: 'Hex Franklin Condensed', 'Hex Franklin', 'Franklin Gothic Condensed', 'Arial Narrow', sans-serif;
+          --xcond: 'Hex Franklin X Condensed', 'Hex Franklin Condensed', 'Hex Franklin', 'Arial Narrow', sans-serif; }
+  #page { position: relative; z-index: 1; pointer-events: none; }
+  #page .wrap {
+    width: 100%; max-width: 1440px; margin: 0 auto; padding: 0 40px;
+    display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 12px;
+  }
+  .section { min-height: 100vh; display: flex; align-items: center; }
+
+  /* ---- Scroll tracker (top bar; takes over while the nav is away) ----
+     Both backgrounds are set from JS (updateNarrativeUI) so they follow the bg crossfade:
+     white on purple -> #A294FF on white. */
+  #scrolltrack {
+    position: fixed; top: 0; left: 0; right: 0; height: 6px;
+    z-index: 7;                       /* above the nav (6) */
+    pointer-events: none;
+    opacity: 0; transition: opacity .4s cubic-bezier(.22,.61,.36,1);
+  }
+  #scrolltrack.on { opacity: 1; }
+  #scrolltrack-fill {
+    position: absolute; inset: 0;
+    transform: scaleX(0); transform-origin: 0 50%;
+  }
+
+  /* ---- Top nav (fixed; hides on scroll-down, slides back on scroll-up) ---- */
+  .nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 6; padding: 30px 0;
+    pointer-events: none; --nav-fg: #ffffff;
+    transition: transform .4s cubic-bezier(.22,.61,.36,1);
+  }
+  .nav.hidden { transform: translateY(-100%); }
+  .nav-wrap {
+    width: 100%; max-width: 1440px; margin: 0 auto; padding: 0 40px;
+    display: flex; align-items: center; justify-content: space-between; pointer-events: none;
+  }
+  .nav-logo {
+    font-family: var(--xcond); font-weight: 800; font-size: 27px; line-height: 1;
+    text-transform: uppercase; letter-spacing: 0.005em; color: var(--nav-fg); text-decoration: none;
+    pointer-events: auto;
+  }
+  .nav-logo span { opacity: 0.40; }
+  .nav-right { display: flex; align-items: center; gap: 40px; pointer-events: auto; }  /* extra space before search */
+  .nav-links { display: flex; align-items: center; gap: 24px; }
+  .nav-links a {
+    position: relative;
+    font-family: 'Hex Franklin Medium', 'Helvetica Neue', Arial, sans-serif; font-weight: 500;
+    font-size: 16px; color: var(--nav-fg); text-decoration: none; cursor: pointer; white-space: nowrap;
+  }
+  /* underline drawn below the text without altering height, so all items stay bottom-aligned */
+  .nav-links a.active::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 2px; background: var(--nav-fg);
+  }
+  .nav-search { background: none; border: 0; padding: 0; color: var(--nav-fg); cursor: pointer; display: flex; }
+  .nav-search svg { width: 20px; height: 20px; display: block; }
+
+  /* Hero — big display headline + supporting copy on the left */
+  #hero .wrap { align-items: center; }
+  .hero-copy {
+    grid-column: 1 / span 12;
+    pointer-events: none;            /* empty areas pass through to the model */
+    color: #ffffff;
+  }
+  .eyebrow {
+    margin: 0 0 24px; pointer-events: auto;
+    font-family: 'Hex Franklin', sans-serif; font-weight: 700; font-size: 24px; line-height: 1;
+  }
+  .hero-head {
+    margin: 0 0 40px; max-width: 66%; pointer-events: auto;
+    font-family: var(--xcond); font-weight: 800; text-transform: uppercase;
+    font-size: 160px; line-height: 78%; letter-spacing: -0.01em;
+  }
+  .hero-body {
+    max-width: 42%; pointer-events: auto;
+    font-family: var(--serif); font-size: 24px; line-height: 135%; letter-spacing: -0.01em;
+  }
+  .hero-body p { margin: 0 0 20px; }
+  .hero-body .hero-kicker { margin-bottom: 0; font-weight: 700; }
+
+  /* Chapters — sticky index rail + copy in the left 4 columns */
+  /* no bottom padding: #chapters must end exactly at ch6's bottom, because that edge is what
+     releases the sticky .rail — and it has to release in step with the footer arriving. */
+  #chapters { position: relative; align-items: start; }
+  .rail {
+    grid-column: 1 / span 1; grid-row: 1 / -1;   /* spans chapters 1-4 AND chapter 5 */
+    position: sticky; top: 0; height: 100vh;
+    display: flex; align-items: center;
+    overflow: hidden;                 /* clip the line at the viewport bottom */
+    pointer-events: none;
+    /* colors are lerped from JS so the rail stays legible on white AND on purple */
+    --rail-dot: rgba(101,76,255,0.5);
+    --rail-active: #654CFF;
+    --rail-num: #ffffff;
+    --rail-line: rgba(101,76,255,0.10);
+  }
+  .rail-inner { position: relative; display: flex; flex-direction: column; gap: 8px; }  /* centered by .rail */
+  .rail-line {
+    position: absolute; left: 16px; transform: translateX(-50%);
+    top: 0; bottom: 0; width: 2px;         /* full viewport height, fixed behind the circles */
+    background: var(--rail-line);
+  }
+  /* fixed 32px hit box so the list never reflows; the visible circle is a scaled ::before */
+  .rail-item {
+    position: relative; z-index: 1; pointer-events: auto;
+    width: 32px; height: 32px; margin: 0; padding: 0;
+    border: none; background: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--rail-num); font-family: var(--cond); font-weight: 800; font-size: 15px;
+  }
+  .rail-item::before {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 32px; height: 32px; border-radius: 50%; background: var(--rail-dot);
+    transform: translate(-50%,-50%) scale(0.375);   /* dot = 12px */
+    transition: transform .34s cubic-bezier(.22,.61,.36,1), background .2s ease;
+  }
+  .rail-item:hover::before { background: var(--rail-active); }   /* fully saturated on hover */
+  .rail-item.is-active::before { transform: translate(-50%,-50%) scale(1); background: var(--rail-active); }
+  .rail-item .num { position: relative; z-index: 1; opacity: 0; transition: opacity .2s ease; }
+  .rail-item.is-active .num { opacity: 1; }
+  .chapters-col { grid-column: 1 / span 4; grid-row: 1; padding-left: 60px; }
+  .chapter { min-height: 100vh; display: flex; align-items: center; }
+  /* chapters with a context callout get extra scroll; the copy pins so the text
+     stays put while the card fades in during the latter part of the scroll */
+  .chapter.has-callout { min-height: 200vh; display: block; padding-top: 45vh; }  /* lead-in so copy enters on white */
+  /* pin so the headline lines up with the rail's active number (raised 25%: 37.5vh) */
+  .chapter.has-callout .copy { position: sticky; top: calc(37.5vh - 125px); }
+  .copy { pointer-events: auto; }
+  .ch-head {
+    margin: 0 0 22px; font-family: var(--xcond); font-weight: 800;
+    text-transform: uppercase; font-size: 64px; line-height: 78%;
+    letter-spacing: -0.01em; color: #000000;
+  }
+  .ch-body {
+    margin: 0 0 18px; font-family: var(--serif);
+    font-size: 20px; line-height: 140%; letter-spacing: -0.01em; color: #000000;
+  }
+  .copy > :last-child { margin-bottom: 0; }
+
+  /* ---- Pinned chapters (5, 6 …) · purple, centered opener, model rises + pins ---- */
+  /* Full 12-col row of their own so the copy can center on the page instead of
+     living in the left 4-col channel like chapters 1-4. */
+  .chapter-wide {
+    grid-column: 1 / span 12;
+    display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 12px;
+    padding-top: 45vh;      /* copy enters from below the fold, on purple */
+  }
+  /* height = 100vh rise + that chapter's beat edges + a viewport of hold at the end.
+     (the 45vh lead-in above is INSIDE this, before the chapter's top reaches 0) */
+  #chapter-5 { grid-row: 2; min-height: 700vh; }   /* 1.0 rise + 4.9vh of beats */
+  /* position:relative so .ch6-outro can place against it. 660vh of rise+beats, then 60vh for
+     the outro to rise over the model; 820vh puts the footer's top edge at the viewport bottom
+     exactly as the outro centres. */
+  #chapter-6 { grid-row: 3; min-height: 820vh; position: relative; }
+  /* Never pins — the copy scrolls straight through and off, and the rising model
+     passes underneath it. Only the model pins. */
+  .opener-copy {
+    grid-column: 4 / span 6;   /* 6 cols, centered */
+    align-self: start;
+    text-align: center;
+  }
+  /* 90% leading — .ch-head's 78% is set for the 64px chapter heads; the openers are looser */
+  .opener-copy .ch-head { font-size: 82px; line-height: 90%; margin: 0 0 36px; color: #ffffff; }
+  .opener-copy .ch-body { color: #ffffff; margin: 0; }
+
+  /* ---- Chapter 6 outro · the closing line, scrolls up over the top-view target ----
+     Absolutely placed rather than in the grid flow: it has to enter the viewport exactly where
+     the beats END (ch6.top -780vh), and row-2 auto-placement would sit it right under the
+     opener. `top` is keyed to CH6's beat total — keep them in step.
+     top 760vh = the beat total (1.0 rise + 5.6 beats = 660vh) + 100vh, so it enters exactly as
+     beat 5 finishes and settles at y 40vh — 60vh (540px) of travel, resting over the model. */
+  .ch6-outro { position: absolute; left: 0; right: 0; top: 760vh; text-align: center; }
+  .ch6-outro h2 {
+    margin: 0;
+    font-family: var(--xcond); font-weight: 800; text-transform: uppercase;
+    font-size: 160px; line-height: 90%; letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+
+  /* Driven entirely from JS (updateCh5Photo) — it has three phases (ride the model up, pin,
+     release at the end of beat 2) and sticky can only express the first two, since sticky
+     releases when its CONTAINER ends, not when a beat does. Fixed + JS top instead. */
+  .ch5-photo {
+    position: fixed; z-index: 2;
+    margin: 0; padding: 0;
+    pointer-events: auto;
+    opacity: 0;
+  }
+  .ch5-photo .shot {
+    position: relative; width: 100%; aspect-ratio: 4 / 3;
+    background: #654CFF; overflow: hidden;
+  }
+  .ch5-photo img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  /* shown only if the image file isn't in the folder yet */
+  .ch5-photo .shot.missing { border: 1px dashed rgba(255,255,255,0.5); }
+  .ch5-photo .shot.missing img { display: none; }
+  .ch5-photo .shot.missing::after {
+    content: 'drop portrait.png into IMG/';
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 12px;
+    font-family: 'Hex Franklin Regular', sans-serif; font-size: 12px;
+    color: rgba(255,255,255,0.65);
+  }
+  .ch5-photo figcaption {
+    margin-top: 18px;
+    font-family: var(--serif); font-size: 20px; line-height: 140%;
+    letter-spacing: -0.01em; color: #ffffff;
+  }
+
+  /* ---- Placeholder footer · revealed as everything scrolls up ---- */
+  #footer { position: relative; height: 100vh; background: #000000; }
+
+  /* ---- Labels rendered in DOM, projected from 3D ---- */
+  .layer-label {
+    position: fixed;
+    z-index: 2;
+    font-family: 'Hex Franklin', 'Arial Narrow', sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    transition: opacity .25s ease;
+    background: #654CFF;
+    color: rgba(255,255,255,0.8);
+    padding: 4px 10px;
+    border-radius: 5px;
+  }
+  /* the patient label is the only one set in the display face, per the ch5 comp */
+  .layer-label.patient-label {
+    font-family: var(--xcond); font-weight: 800;
+    text-transform: uppercase; font-size: 36px; letter-spacing: -0.01em;
+  }
+  .layer-label.editable { pointer-events: auto; cursor: move; outline: 1px dashed var(--accent); outline-offset: 3px; }
+  .layer-label .loff { display: none; }
+  .layer-label.editable .loff { display: inline; margin-left: 6px; font-size: 12px; font-weight: 400; opacity: .75; }
+  .layer-handle {
+    position: fixed; z-index: 4;
+    width: 20px; height: 20px; margin-left:-10px; margin-top:-10px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: rgba(255,90,0,0.18);
+    cursor: grab; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .layer-handle:active { cursor: grabbing; background: rgba(255,90,0,0.35); }
+  .layer-handle .hval {
+    position: absolute; top: 24px; left: 50%; transform: translateX(-50%);
+    font-family: 'Hex Franklin','Arial Narrow',sans-serif; font-size: 11px;
+    color: var(--accent); white-space: nowrap; font-variant-numeric: tabular-nums;
+    background: rgba(0,0,0,0.25); padding: 1px 5px; border-radius: 4px;
+  }
+  /* ---- Context callout (frosted card that fades up over the model) ---- */
+  .callout {
+    position: fixed; z-index: 3; pointer-events: none; box-sizing: border-box;
+    padding: 24px;
+    background: rgba(255,255,255,0.8);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    color: #000000;
+    font-family: 'Hex Franklin Regular', 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 400; font-size: 16px; line-height: 140%;
+    box-shadow: 0 10px 44px rgba(20,16,60,0.10);
+    opacity: 0;
+  }
+  .callout strong { font-family: 'Hex Franklin', sans-serif; font-weight: 700; }   /* bold numbers */
+  /* optional photo above a card's body copy — sized to the card's content box, uncropped */
+  .callout .card-img {
+    display: block; width: 100%; height: auto;
+    margin: 0 0 18px;
+  }
+  /* card headline — the display face, purple, over the frosted card's black 16px body */
+  .callout .card-head {
+    display: block; margin: 0 0 12px;
+    font-family: var(--xcond); font-weight: 800;
+    font-size: 36px; line-height: 90%; letter-spacing: -0.01em;
+    color: #654CFF;
+  }
+  /* `solid` variant (chapter 5) — outlined, white text, sits on the purple instead of frosting
+     it. Fill is SOLID brand purple (= PAL.dark.bg, and ch5 is always lightFactor 0) so it reads
+     as flat background while masking the bars and arcs that would otherwise show through.
+     Chapters 1-4 and 6 use the plain frosted `.callout` above. */
+  .callout.solid {
+    background: #654CFF;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    border: 1px solid rgba(255,255,255,0.65);
+    color: #ffffff;
+    box-shadow: none;
+  }
+  .callout.solid strong { color: #ffffff; }
+  .qty-label {
+    position: fixed;
+    z-index: 2;
+    font-family: 'Hex Franklin', 'Arial Narrow', sans-serif;
+    font-weight: 700;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    line-height: 1.05;
+  }
+  .qty-label .num { display:block; font-size: 30px; color: var(--accent); }
+  .qty-label .cap { display:block; font-size: 13px; opacity: .85; }
+
+  /* ---- Connection lines between layer centers (expanded chapters view) ---- */
+  #links { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+  .link-line { stroke: #654CFF; stroke-width: 3; stroke-dasharray: 6 6; fill: none; }
+  /* chapter 5 connection arcs — white, on the purple cross-section.
+     stroke-width + dasharray are set per-frame in updateCh5Arcs (current = dashed + heavy,
+     settled = solid + thin), so they're deliberately not declared here. */
+  .ch5-arc { fill: none; stroke: #ffffff; stroke-linecap: butt; }
+
+  /* ---- Control panel ---- */
+  #panel {
+    position: fixed;
+    top: 16px; left: 16px;
+    z-index: 5;
+    width: 244px;
+    background: var(--ui-bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--ui-line);
+    border-radius: 14px;
+    padding: 14px;
+    color: var(--ui-fg);
+    font-size: 12px;
+    user-select: none;
+  }
+  #panel h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: 1.5px; text-transform: uppercase; }
+  #panel .sub { font-size: 10.5px; opacity: .6; margin: 0; letter-spacing: .5px; }
+  #panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; cursor:move; margin-bottom:12px; }
+  #panel-head:active { cursor:grabbing; }
+  #panel.dragging, #panel.dragging * { user-select:none; }
+  #panel-collapse {
+    flex:0 0 auto; width:24px; height:24px; border-radius:7px;
+    border:1px solid var(--ui-line); background:transparent; color:inherit;
+    font:inherit; font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #panel-collapse:hover { background:rgba(255,255,255,0.10); }
+  #panel.collapsed #panel-head { margin-bottom:0; }
+  #panel.collapsed #panel-body, #panel.collapsed .sub { display:none; }
+  #panel .group { margin-bottom: 14px; }
+  #panel .glabel { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; opacity: .55; margin-bottom: 7px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 7px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--ui-line);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    text-align: center;
+    transition: background .15s ease, border-color .15s ease, transform .05s ease;
+  }
+  .btn:hover { background: rgba(255,255,255,0.10); }
+  .btn:active { transform: scale(.97); }
+  .btn.on { background: var(--ui-fg); color: #4632c9; border-color: var(--ui-fg); }
+  .btn.accent.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .camread {
+    margin-top: 7px; font-size: 10.5px; letter-spacing: .3px;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+    cursor: pointer; user-select: all;
+  }
+  .qtyrow { display:flex; align-items:center; gap: 8px; margin-top: 8px; }
+  .qtyrow input[type=range] { flex:1; accent-color: var(--accent); }
+  .qtyrow .val { width: 34px; text-align:right; font-variant-numeric: tabular-nums; }
+  input[type=text].capinput {
+    width: 100%; margin-top: 8px; padding: 6px 8px; border-radius: 7px;
+    border: 1px solid var(--ui-line); background: transparent; color: inherit; font: inherit; font-size: 11px;
+  }
+  #hint {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 5; font-size: 11px; letter-spacing: .4px; opacity: .5; pointer-events: none;
+    color: var(--ui-fg); transition: color .35s ease;
+  }
+  #statepips {
+    position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
+    z-index: 5; display:flex; flex-direction: column; gap: 10px;
+  }
+  #statepips .pip {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 1px solid var(--ui-fg); opacity: .4; cursor: pointer;
+    transition: opacity .2s, background .2s;
+  }
+  #statepips .pip.on { opacity: 1; background: var(--ui-fg); }
+  body.light { --ui-fg:#2b2b3a; --ui-bg:rgba(255,255,255,0.72); --ui-line:rgba(40,30,120,0.18); }
+
+  /* Screen recording: hide the pointer. Toggled by HIDE_CURSOR in the script. `*` + !important
+     because several elements set their own cursor (panel drag, rail items, pips). */
+  html.hide-cursor, html.hide-cursor * { cursor: none !important; }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <svg id="links"></svg>
+  <div id="scrolltrack"><div id="scrolltrack-fill"></div></div>
+  <div id="page">
+    <!-- Top nav -->
+    <nav class="nav">
+      <div class="nav-wrap">
+        <a class="nav-logo" href="#">Parker <span>Cancer Ends Here</span></a>
+        <div class="nav-right">
+          <div class="nav-links">
+            <a class="active">Our Model</a>
+            <a>Partners</a>
+            <a>About Immunotherapy</a>
+            <a>For Patients</a>
+            <a>Donate</a>
+          </div>
+          <button class="nav-search" aria-label="Search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Section 1 · Hero -->
+    <section id="hero" class="section">
+      <div class="wrap">
+        <div class="hero-copy">
+          <p class="eyebrow">Our Model</p>
+          <h1 class="hero-head">No Brakes. Only Breakthroughs</h1>
+          <div class="hero-body">
+            <p>People with cancer have no time to waste, and neither do we. That&rsquo;s why Parker&rsquo;s end-to-end approach removes barriers, bridges gaps, and actively drives ideas forward.</p>
+            <p>We turn a stop-and-start process into a full-speed-ahead pipeline from lab to patient &mdash; so breakthroughs don&rsquo;t get stuck, and more of them actually save lives, sooner.</p>
+            <p class="hero-kicker">Here&rsquo;s how.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Chapters (copy left 4 cols, inset for the sticky index rail) -->
+    <div id="chapters" class="wrap">
+      <aside id="rail" class="rail">
+        <div class="rail-line"></div>
+        <div class="rail-inner">
+          <button class="rail-item is-active" data-idx="1"><span class="num">1</span></button>
+          <button class="rail-item" data-idx="2"><span class="num">2</span></button>
+          <button class="rail-item" data-idx="3"><span class="num">3</span></button>
+          <button class="rail-item" data-idx="4"><span class="num">4</span></button>
+          <button class="rail-item" data-idx="5"><span class="num">5</span></button>
+          <button class="rail-item" data-idx="6"><span class="num">6</span></button>
+        </div>
+      </aside>
+      <div class="chapters-col">
+        <section id="chapter-1" class="chapter">
+          <div class="copy">
+            <h2 class="ch-head">Our Model</h2>
+            <p class="ch-body">Ten years ago, we decided the promise of immunotherapy couldn&rsquo;t wait. With some of the world&rsquo;s leading scientists, we began to chart a strategic path toward patient impact, within &mdash; and outside &mdash; the system.</p>
+          </div>
+        </section>
+
+        <section id="chapter-2" class="chapter">
+          <div class="copy">
+            <h2 class="ch-head">An Unparalleled Network</h2>
+            <p class="ch-body">Parker Institutes is a unified force of the world&rsquo;s top immunotherapy researchers, working in tandem towards a common goal: curing cancer.</p>
+            <p class="ch-body">We fund and support scientific discoveries across our network of 19 partner institutes and 140+ researchers.</p>
+          </div>
+        </section>
+
+        <section id="chapter-3" class="chapter">
+          <div class="copy">
+            <h2 class="ch-head">From IP to Patients</h2>
+            <p class="ch-body">Parker Innovations is the connective tissue of the entire Parker model. In the chasm between academia and industry, where science too often loses steam, Innovations propels discoveries forward &mdash; and turns promise into progress.</p>
+            <p class="ch-body">As stewards of all intellectual property generated across our network, our Innovations team maintains a bird&rsquo;s-eye view of the most exciting emerging science. Our portfolio includes XX technologies and counting.</p>
+          </div>
+        </section>
+
+        <section id="chapter-4" class="chapter">
+          <div class="copy">
+            <h2 class="ch-head">Investing in<br>the Best</h2>
+            <p class="ch-body">When IP requires a team and company structure to move into clinical trials, we invest both funding and resources into making that a reality. Companies in our portfolio have raised over $4bn.</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- Chapter 5 · the shift back to purple: centered copy, side-view model -->
+      <section id="chapter-5" class="chapter chapter-wide">
+        <div class="copy opener-copy">
+          <h2 class="ch-head">Vital Connections</h2>
+          <p class="ch-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec et felis sapien. Sed sit amet egestas turpis. Pellentesque at enim tincidunt, rutrum nibh nec, dapibus neque. Donec mollis lacus eget felis aliquet lobortis.</p>
+        </div>
+        <figure class="ch5-photo">
+          <div class="shot"><img src="IMG/portrait.png" alt="Dr. Kole Roybal" /></div>
+          <figcaption>In 2017, Dr. Lewis Lanier of UCSF recruited Dr. Kole Roybal to become a Parker Institutes member researcher. Dr. Roybal now serves as the co-director of the Parker Institute at UCSF.</figcaption>
+        </figure>
+      </section>
+
+      <!-- Chapter 6 · same mechanic: ch5's model scrolls up and out, a new instance rises -->
+      <section id="chapter-6" class="chapter chapter-wide">
+        <div class="copy opener-copy">
+          <h2 class="ch-head">Delivering<br>Outcomes to Patients</h2>
+          <p class="ch-body">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec et felis sapien. Sed sit amet egestas turpis. Pellentesque at enim tincidunt, rutrum nibh nec, dapibus neque. Donec mollis lacus eget felis aliquet lobortis.</p>
+        </div>
+        <div class="ch6-outro"><h2>Cancer Ends Here</h2></div>
+      </section>
+    </div>
+
+    <!-- placeholder footer — its top edge is the anchor that drags the model up and out -->
+    <footer id="footer"></footer>
+  </div>
+
+  <div id="statepips"></div>
+
+  <div id="panel">
+    <div id="panel-head">
+      <div>
+        <h1>Parker Model</h1>
+        <p class="sub">scroll &middot; drag to orbit</p>
+      </div>
+      <button id="panel-collapse" title="Collapse">&minus;</button>
+    </div>
+    <div id="panel-body">
+
+    <div class="group">
+      <div class="glabel">Layout</div>
+      <div class="row" id="layouts"></div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">View</div>
+      <div class="row" id="views"></div>
+      <!-- live camera readout: drag-orbit lives in userTheta/userPhi and is otherwise
+           unreadable, so this shows the EFFECTIVE values to paste back into STATES -->
+      <div class="camread" id="camread">phi 0.000 · theta 0.000</div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">Appearance</div>
+      <div class="row">
+        <button class="btn" id="mode-toggle">Dark / Light</button>
+        <button class="btn" id="outline-toggle">Outline</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">Highlight layer</div>
+      <div class="row" id="layer-hl"></div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">Highlight sub-layer</div>
+      <div class="row" id="sub-hl"></div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">Connections</div>
+      <div class="row">
+        <button class="btn" id="arcs-toggle">Show arcs</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">Adjust positions</div>
+      <div class="row">
+        <button class="btn accent" id="handles-toggle">Layer handles</button>
+        <button class="btn accent" id="label-handles-toggle">Label handles</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">Layer size</div>
+      <div id="layer-sizes"></div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">Ripple &middot; top views</div>
+      <div class="qtyrow">
+        <span style="width:40px;font-size:10.5px;opacity:.7">Pace</span>
+        <input type="range" id="ripple-range" min="0" max="100" step="1" value="9" />
+        <span class="val" id="ripple-val">9</span>
+      </div>
+      <div class="qtyrow">
+        <span style="width:40px;font-size:10.5px;opacity:.7">Rings</span>
+        <input type="range" id="ripple-count" min="0" max="6" step="1" value="2" />
+        <span class="val" id="ripple-count-val">2</span>
+      </div>
+      <select id="ripple-ease" class="capinput" style="cursor:pointer">
+        <option value="sine" selected>Sine</option>
+        <option value="easeOut">Ease out</option>
+        <option value="linear">Linear</option>
+        <option value="easeIn">Ease in</option>
+        <option value="easeInOut">Ease in-out</option>
+      </select>
+    </div>
+
+    <div class="group">
+      <div class="glabel">Quantity</div>
+      <div class="qtyrow">
+        <input type="range" id="qty-range" min="0" max="140" step="1" value="0" />
+        <span class="val" id="qty-val">0</span>
+      </div>
+      <input type="text" class="capinput" id="qty-cap" placeholder="e.g. Licensed technologies" value="Researchers" />
+    </div>
+
+    </div><!-- /#panel-body -->
+  </div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ============================================================
+   Parker Model — WebGL prototype
+   3 layers (Institutes / Innovations / Bioventures) each sharing
+   3 sub-layers (Parker / Network / Impact), culminating in a
+   single point (patient impact). Scroll-driven states + controls.
+   ============================================================ */
+
+const THREEc = THREE;
+
+// ---------- palette (continuous dark <-> light crossfade) ----------
+const PAL = {
+  dark:  { bg: 0x654CFF, fill: 0xffffff, fillA: 0.16, stroke: 0x9d8dff, strokeA: 0.9,  ripple: 0xbcb2ff, dot: 0xffffff, line: 0xffffff },
+  light: { bg: 0xFFFFFF, fill: 0x654CFF, fillA: 0.14, stroke: 0x654CFF, strokeA: 0.55, ripple: 0x654CFF, dot: 0x654CFF, line: 0x654CFF },
+};
+let lightFactor = 0;                       // 0 = dark/purple, 1 = light/white
+let outlineF = 1;                          // 0 = filled, 1 = outline only (strokes)
+const _mix = (a,b,t)=>a+(b-a)*t;
+function lerpHex(a,b,t){
+  const ar=(a>>16)&255, ag=(a>>8)&255, ab=a&255, br=(b>>16)&255, bg=(b>>8)&255, bb=b&255;
+  return (Math.round(_mix(ar,br,t))<<16)|(Math.round(_mix(ag,bg,t))<<8)|Math.round(_mix(ab,bb,t));
+}
+function curPalette(){
+  const d=PAL.dark, l=PAL.light, f=lightFactor;
+  return { bg:lerpHex(d.bg,l.bg,f), fill:lerpHex(d.fill,l.fill,f), fillA:_mix(d.fillA,l.fillA,f),
+    stroke:lerpHex(d.stroke,l.stroke,f), strokeA:_mix(d.strokeA,l.strokeA,f),
+    ripple:lerpHex(d.ripple,l.ripple,f), dot:lerpHex(d.dot,l.dot,f), line:lerpHex(d.line,l.line,f) };
+}
+const P = () => curPalette();
+const ACCENT = 0xFF5A00;
+
+// ---------- scene ----------
+const stage = document.getElementById('stage');
+const renderer = new THREEc.WebGLRenderer({ antialias:true, alpha:false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+stage.appendChild(renderer.domElement);
+
+const scene = new THREEc.Scene();
+const camera = new THREEc.PerspectiveCamera(38, 1, 0.1, 200);
+
+// round sprite texture for quantity dots
+function makeDotTexture(){
+  const s=64, c=document.createElement('canvas'); c.width=c.height=s;
+  const g=c.getContext('2d');
+  const grad=g.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
+  grad.addColorStop(0,'rgba(255,255,255,1)');
+  grad.addColorStop(0.72,'rgba(255,255,255,1)');
+  grad.addColorStop(0.73,'rgba(255,255,255,0)');
+  g.fillStyle=grad; g.beginPath(); g.arc(s/2,s/2,s/2,0,Math.PI*2); g.fill();
+  const t=new THREEc.CanvasTexture(c); t.needsUpdate=true; return t;
+}
+const DOT_TEX = makeDotTexture();
+
+// ---------- model definition ----------
+// sub-layers: inner -> outer
+// `y` = the stepped dome height, inner -> outer. Only visible where spread < 1 (Top / Tilted) —
+// the expanded chapters flatten it to 0, and the side view hides the discs entirely, so this is
+// effectively a Tilted-view knob. Sized against the layer gaps (stackY, ~2.15): a dome about
+// half a gap tall is what reads as dimensional rather than a stack of flat rings.
+const SUBS = [
+  { name:'Parker',  rf:0.30, y:0.70 },
+  { name:'Network', rf:0.60, y:0.35 },
+  { name:'Impact',  rf:1.00, y:0.00 },
+];
+const RIPPLES = [1.16, 1.30, 1.46]; // stroke-only outer rings
+
+// main layers bottom -> top
+// stackY = the real stacked model (Top / Tilted). sideY = the SIDE view's own vertical
+// spacing: even bands, and compressed so the bars read wide. They have to be separate —
+// a bar is 3.0 world units and the stackY tower is 4.9 tall, so fitting that tower in the
+// viewport caps the bars at ~4.3 columns. The cross-section comp wants ~7.
+const LAYERS = [
+  { name:'Institutes',  scale:1.0, stackY:0.0,  sideY:0.00, color:0x654CFF, expanded:[-0.63,0, 0.87] },
+  { name:'Innovations', scale:1.0, stackY:2.15, sideY:0.85, color:0x654CFF, expanded:[ 1.49,0, 1.65] },
+  { name:'Bioventures', scale:1.0, stackY:3.75, sideY:1.71, color:0x654CFF, expanded:[ 1.36,0,-1.06] },
+];
+// Sits above the whole stack. The nearest thing is the top layer's CENTRE DOT, not its Parker
+// disc: Bioventures (stackY 3.75) + dotBaseY (SUBS[0].y 0.70 + 0.16) = 4.61. Measuring against
+// the disc (4.45) is what made 4.8 read as crowded — it left only 0.19 of real air.
+// Re-check this whenever SUBS[0].y moves.
+const PATIENT_Y = 5.1;
+const SIDE_PATIENT_Y = 2.48;      // patient point in the compressed side stack
+const PATIENT_SIDE_SCALE = 1/3;   // sphere reads 2x too big against the squashed side stack
+const BASE_R = 1.5;
+
+// ---------- geometry builders ----------
+function circlePoints(r, seg=128){
+  const pts=[];
+  for(let i=0;i<=seg;i++){ const a=i/seg*Math.PI*2; pts.push(new THREEc.Vector3(Math.cos(a)*r,0,Math.sin(a)*r)); }
+  return pts;
+}
+
+// ---- randomized dashes -------------------------------------------------
+// dash / gap lengths are randomized per-dash within these ranges. Values are
+// in "art units"; DASH_UNIT maps them into world space.
+const DASH_UNIT = 0.006;
+const DASH_MIN = 50,  DASH_MAX = 200;   // dash length range
+const GAP_MIN  = 5,   GAP_MAX  = 50;    // gap length range
+const randRange = (a,b) => a + Math.random()*(b-a);
+
+// Walk a polyline by arc-length, laying down dashes of random length separated
+// by gaps of random length. Returns LineSegments geometry (point pairs).
+function randomDashedFromPath(pts){
+  const out = [];
+  let drawing = true;
+  let remaining = randRange(DASH_MIN,DASH_MAX)*DASH_UNIT;
+  const tmp = new THREEc.Vector3();
+  for(let i=1;i<pts.length;i++){
+    const a=pts[i-1], b=pts[i];
+    tmp.copy(b).sub(a);
+    const segLen = tmp.length();
+    if(segLen < 1e-9) continue;
+    let pos = 0;
+    while(pos < segLen){
+      const take = Math.min(remaining, segLen-pos);
+      if(drawing){
+        out.push(a.clone().addScaledVector(tmp, pos/segLen));
+        out.push(a.clone().addScaledVector(tmp, (pos+take)/segLen));
+      }
+      pos += take;
+      remaining -= take;
+      if(remaining <= 1e-9){
+        drawing = !drawing;
+        remaining = drawing ? randRange(DASH_MIN,DASH_MAX)*DASH_UNIT
+                            : randRange(GAP_MIN,GAP_MAX)*DASH_UNIT;
+      }
+    }
+  }
+  return new THREEc.BufferGeometry().setFromPoints(out);
+}
+function randomDashedCircle(r, seg=240){ return randomDashedFromPath(circlePoints(r, seg)); }
+
+function dashedRing(r, opts={}){
+  const geo=randomDashedCircle(r);
+  const mat=new THREEc.LineBasicMaterial({ color:P().stroke, transparent:true, opacity:P().strokeA });
+  const line=new THREEc.LineSegments(geo,mat);
+  line.userData.role='stroke';
+  return line;
+}
+function solidRing(r, opts={}){
+  const geo=randomDashedCircle(r);
+  const mat=new THREEc.LineBasicMaterial({ color:P().ripple, transparent:true, opacity:0.5 });
+  const line=new THREEc.LineSegments(geo,mat); line.userData.role='ripple';
+  return line;
+}
+function fillDisc(r){
+  const geo=new THREEc.CircleGeometry(r, 96);
+  geo.rotateX(-Math.PI/2);
+  const mat=new THREEc.MeshBasicMaterial({ color:P().fill, transparent:true, opacity:P().fillA, depthWrite:false, side:THREEc.DoubleSide });
+  const m=new THREEc.Mesh(geo,mat); m.userData.role='fill';
+  return m;
+}
+
+const root = new THREEc.Group();
+scene.add(root);
+
+const RIPPLE_N = 6;   // ring objects built per layer (slider chooses how many animate)
+
+const layerObjs = [];   // per main layer
+LAYERS.forEach((L, li) => {
+  const g = new THREEc.Group();
+  root.add(g);
+  const discs = [];
+  // fills + strokes for each sub-layer (outer first so inner draws on top)
+  for(let si=SUBS.length-1; si>=0; si--){
+    const S=SUBS[si];
+    const r = BASE_R * L.scale * S.rf;
+    const yo = S.y * L.scale;
+    const fill = fillDisc(r); fill.position.y = yo;
+    const stroke = dashedRing(r, {dashes: 7+si*2}); stroke.position.y = yo;
+    fill.userData.sub = si; stroke.userData.sub = si;
+    // base (outer Impact) disc renders above the ripples so it can mask them
+    if(si===SUBS.length-1) fill.renderOrder = -1;
+    g.add(fill); g.add(stroke);
+    discs.push({ si, r, yo, fill, stroke });
+  }
+  // outer ripple rings (stroke only)
+  const ripples=[];
+  RIPPLES.forEach((rf,ri)=>{
+    const r=BASE_R*L.scale*rf;
+    const ln=solidRing(r); ln.position.y=0; ln.material.opacity=0.42-ri*0.10;
+    g.add(ln); ripples.push(ln);
+  });
+  // Center dot — a FLAT disc lying in the layer's plane, not a sphere, so it foreshortens into
+  // an ellipse along with everything else in the tilted view. A sphere reads the same from every
+  // angle and sits outside the perspective. (The patient point is still a sphere — it's the one
+  // thing that isn't part of a layer.)
+  const dotGeo = new THREEc.CircleGeometry(0.055*Math.max(L.scale,0.6), 32);
+  dotGeo.rotateX(-Math.PI/2);
+  const dot=new THREEc.Mesh(dotGeo,
+            new THREEc.MeshBasicMaterial({color:P().dot, side:THREEc.DoubleSide}));
+  const dotBaseY = (SUBS[0].y*L.scale)+0.16*L.scale;
+  dot.position.y = dotBaseY;
+  g.add(dot);
+
+  // animated ripple rings — expand outward from the layer's outer edge (top views)
+  const rippleRings = [];
+  for(let i=0;i<RIPPLE_N;i++){
+    // unit-radius ring with its own random dash pattern; scaled per-frame
+    const geo=randomDashedCircle(1, 200);
+    const mat=new THREEc.LineBasicMaterial({ color:P().stroke, transparent:true, opacity:0, depthWrite:false });
+    const ln=new THREEc.LineSegments(geo, mat);
+    ln.visible=false;
+    ln.renderOrder = -2;   // behind the opaque base disc so it can be masked
+    g.add(ln);
+    rippleRings.push({ line:ln, offset: i/RIPPLE_N });
+  }
+
+  // side-view cross-section bars: each sub-layer becomes a horizontal line.
+  // Impact (outer) = bold divider bar; Network/Parker = thinner lines above it.
+  // Width scales with the disc diameter; thickness scales with the layer size
+  // so the bottom-most layer (Institutes) is the widest & thickest.
+  const sideBars = [];
+  const SIDE_DY = 0.18;                     // vertical spacing between sub-layers (side view only)
+  SUBS.forEach((S, si)=>{
+    const width = 2 * BASE_R * L.scale * S.rf;
+    const isImpact = (si === SUBS.length-1);
+    // bold divider bar at 1/3 its old weight (was *0.75)
+    const thick = isImpact ? (0.05 + 0.075*L.scale)*0.25 : 0.02;
+    const geo = new THREEc.PlaneGeometry(width, thick);
+    geo.rotateY(Math.PI/2);                 // lie flat, width along Z (screen-horizontal in side view)
+    const mat = new THREEc.MeshBasicMaterial({ color:P().line, transparent:true, opacity:0, depthWrite:false, side:THREEc.DoubleSide });
+    const bar = new THREEc.Mesh(geo, mat);
+    // Impact = bold divider at the band's FLOOR (yOff 0); Network/Parker sit above it
+    bar.userData = { si, baseOpacity: isImpact ? 1.0 : 0.55, yOff: (SUBS.length-1-si)*SIDE_DY };
+    g.add(bar);
+    sideBars.push(bar);
+  });
+
+  // quantity dots (Points on outer edge)
+  const qtyGeo=new THREEc.BufferGeometry();
+  qtyGeo.setAttribute('position', new THREEc.BufferAttribute(new Float32Array(140*3),3));
+  qtyGeo.setDrawRange(0,0);
+  const qtyMat=new THREEc.PointsMaterial({ color:ACCENT, size:0.14, map:DOT_TEX, transparent:true, depthWrite:false, sizeAttenuation:true });
+  const qtyPts=new THREEc.Points(qtyGeo,qtyMat);
+  g.add(qtyPts);
+
+  layerObjs.push({ def:L, group:g, discs, ripples, dot, dotBaseY, sideBars, rippleRings, qtyPts, qtyGeo });
+});
+
+/* ---------- rose-pattern overlays (chapters 2 & 3) ----------------------------------------
+   Dot fields that visualise the quantity named in a chapter's context card, blooming on the
+   layer's surface as the card fades in.
+
+   WHY THIS IS A PORT AND NOT AN IMPORT. `Rose Pattern Generator/rose-pattern.js` says to
+   import it rather than re-implement the geometry, and it renders SVG into a DOM node. But
+   the brief puts these ABOVE the layer discs and BELOW the centre dots — and both of those
+   are WebGL meshes in the same canvas. A DOM overlay can only go above or below the canvas
+   as a whole, so it could never land between them. Rendering in WebGL also foreshortens the
+   field onto the layer's plane, the same reason the centre dot became a flat disc instead of
+   a sphere. So the GEOMETRY below is lifted verbatim (the doc blesses exactly this: "the
+   geometry functions are renderer-agnostic; only the paint loop would change") and only the
+   paint loop is swapped for Points. Same `seed` still yields the tool's exact pattern.
+
+   Keep in sync if the generator's geometry ever changes.  */
+
+// Generator "Copy design" JSON, per layer. `shape` is ignored: Points render as squares
+// natively (no texture map), which is why there's no DOT_TEX here.
+//
+// COUNTS MUST MATCH THE CARD — that's the whole point of these. `fitCounts` snaps every ring
+// to a multiple of `sym`, so an exact total is only reachable when `sym` DIVIDES `dots`.
+// Both designs below are exact. The ch3 design was authored at sym 6, which can only ever
+// produce multiples of 6 — it rendered 54 against a card reading 56, and no seed fixes that.
+// Dropped to sym 4 (56 = 4x14), which also matches ch2 so the two fields read as a set.
+// If you retune either of these, check `sym` divides `dots` or the count will quietly drift.
+const ROSE_ANIM = { bezier:[0.16,1,0.3,1], dur:2200, iRadius:30, iTwist:40, iRot:-50, iOpacity:0, iDots:0 };
+const ROSE_LAYERS = {
+  // Institutes — "140 Researchers across 19 institutions"   (140 = 4 x 35)
+  0: { chapter:2, design:{ dots:140, radius:270, size:2.5, rot:0, twist:0,
+                           scatter:0, var:70, fall:55, sym:4, mirror:true, seed:1 } },
+  // Innovations — "56 Licensed technologies and growing"    (56 = 4 x 14)
+  1: { chapter:3, design:{ dots:56, radius:270, size:2.5, rot:0, twist:-6,
+                           scatter:32, var:70, fall:55, sym:4, mirror:true, seed:1 } },
+};
+const ROSE_COLOR     = 0x654CFF;   // brand purple, on the white chapters-2/3 background
+const ROSE_FILL      = 0.92;       // outer ring, as a fraction of the layer's base disc radius
+const ROSE_DOT_WORLD = 0.026;      // dot side, world units, at layer scale 1
+const ROSE_Y         = 0.02;       // just off the base plane; render order does the layering
+// The bloom PLAYS on a clock (ROSE_ANIM.dur) from the moment the MODEL changes state — it
+// rides `effSi`, the same trigger the ARRANGE tween keys off, so the field is already opening
+// as the layers move into place, well ahead of the card. Never scrubs with scroll, so it
+// always reads at its designed pace. Re-arms on leaving, so it replays on re-entry.
+// Timed playback isn't user-driven, so unlike a scroll-scrub it has to honour reduced motion
+// (EMBEDDING.md note 3) — a MediaQueryList so the per-frame read is just a property lookup.
+const _roseReduceMQ = (typeof matchMedia === 'function')
+  ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+const _roseLerp  = (a,b,t) => a + (b-a)*t;
+const _roseClamp = (v,lo,hi) => Math.min(hi, Math.max(lo, v));
+function _roseRand(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// Bisection, not Newton — overshoot curves have near-zero-slope regions where Newton stalls.
+// (The page's own EASE_MOVE solver is Newton; this one is the generator's and stays separate.)
+function _roseBezier(x1,y1,x2,y2){
+  const curve=(t,a,b)=>{ const A=1-3*b+3*a, B=3*b-6*a, C=3*a; return ((A*t+B)*t+C)*t; };
+  return (x)=>{
+    if(x<=0) return 0;
+    if(x>=1) return 1;
+    let lo=0, hi=1, t=x;
+    for(let i=0;i<24;i++){
+      const cx=curve(t,x1,x2);
+      if(Math.abs(cx-x)<1e-5) break;
+      if(cx<x) lo=t; else hi=t;
+      t=(lo+hi)/2;
+    }
+    return curve(t,y1,y2);
+  };
+}
+function _roseFitCounts(rings, sym, target){
+  const snap=(scale)=>rings.map(rg=>{
+    const ceil=Math.max(sym, Math.floor(rg.cap/sym)*sym);
+    return Math.min(ceil, Math.max(sym, Math.round((rg.w*scale)/sym)*sym));
+  });
+  const sum=(cs)=>cs.reduce((a,b)=>a+b,0);
+  let lo=0.0001, hi=1000, best=snap(lo);
+  for(let i=0;i<60;i++){
+    const mid=(lo+hi)/2, cs=snap(mid), s=sum(cs);
+    if(Math.abs(s-target)<Math.abs(sum(best)-target)) best=cs;
+    if(s===target) return cs;
+    if(s<target) lo=mid; else hi=mid;
+  }
+  return best;
+}
+// The skeleton (ring count, dot counts, offsets, jitter) is FIXED. Radius/rot/twist are pure
+// transforms of it, which is what lets them interpolate cleanly.
+function _roseSkeleton(p){
+  const rng=_roseRand(p.seed), sym=p.sym;
+  let ringCount=Math.round(Math.sqrt(p.dots*0.9));
+  ringCount=Math.max(2, Math.min(40, ringCount, Math.floor(p.dots/sym)));
+  const falloff=p.fall/100, variation=p.var/100;
+  const rings=[];
+  for(let n=1;n<=ringCount;n++){
+    // Isotropic capacity: the count at which arc spacing equals ring spacing. Rings are
+    // thinned from this packing limit, never crammed past it — that ceiling is what stops a
+    // dense core fusing into a solid disc.
+    const ideal=2*Math.PI*n;
+    rings.push({ n,
+      w: Math.max(0.05, ideal*Math.pow(n,-2*falloff)*Math.pow(3,(rng()*2-1)*variation)),
+      cap: Math.max(sym, Math.floor(ideal*1.35)),
+      offset: rng(),
+      jitterSeed: (rng()*1e9)|0 });
+  }
+  const counts=_roseFitCounts(rings, sym, p.dots);
+  return { rings, counts, sym, ringCount, total: counts.reduce((a,b)=>a+b,0) };
+}
+// Writes into a preallocated `out` to avoid per-frame allocation. Each dot carries its
+// symmetry-orbit index so reveals stay symmetric instead of lopsided.
+function _roseLayout(sk, o, out){
+  const { rings, counts, sym } = sk;
+  const spacing=o.radius/rings.length, scatter=o.scatter/100;
+  const globalRot=(o.rot*Math.PI)/180, twist=(o.twist*Math.PI)/180;
+  let i=0, orbitBase=0;
+  for(let ri=0; ri<rings.length; ri++){
+    const ring=rings[ri], count=counts[ri];
+    const step=(Math.PI*2)/count;
+    const ringR=ring.n*spacing;
+    const ringRot=ring.offset*step + globalRot + twist*ring.n;
+    const wedge=Math.max(1, Math.round(count/sym));
+    const m=o.mirror ? wedge : count;
+    const jrng=_roseRand(ring.jitterSeed);
+    const jr=[], ja=[];
+    for(let k=0;k<m;k++){ jr.push(jrng()-0.5); ja.push(jrng()-0.5); }
+    for(let j=0;j<count;j++){
+      const k=j%m;
+      const a=ringRot + j*step + ja[k]*step*scatter*1.6;
+      const r=Math.max(0, ringR + jr[k]*spacing*scatter*1.6);
+      const slot=out[i] || (out[i]={x:0,y:0,orbit:0});
+      slot.x=Math.cos(a)*r;
+      slot.y=Math.sin(a)*r;
+      slot.orbit=orbitBase + (j%wedge);
+      i++;
+    }
+    orbitBase+=wedge;
+  }
+  out.length=i;
+  return out;
+}
+
+// Per-point alpha needs a custom shader: PointsMaterial has one global opacity, and the
+// bloom fades dots in orbit by orbit. No `map` — an unmapped point is already a square.
+const _roseVert = `
+  attribute float alpha;
+  varying float vAlpha;
+  uniform float uK;      // (viewport device px / 2) / tan(fov/2)
+  uniform float uDiam;   // dot side in world units, layer scale folded in
+  void main(){
+    vAlpha = alpha;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = max(1.0, uDiam * uK / max(0.001, -mv.z));
+    gl_Position = projectionMatrix * mv;
+  }`;
+const _roseFrag = `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  varying float vAlpha;
+  void main(){
+    float a = vAlpha * uOpacity;
+    if(a <= 0.002) discard;
+    gl_FragColor = vec4(uColor, a);
+  }`;
+
+layerObjs.forEach((o, li)=>{
+  // Centre dot draws last so the field can never cover it. (Depth sorting already put it on
+  // top — it sits above the discs — so this only makes the existing order explicit.)
+  o.dot.renderOrder = 2;
+  const cfg = ROSE_LAYERS[li];
+  if(!cfg) return;
+  const design = cfg.design;
+  const sk = _roseSkeleton(design);
+  if(sk.total !== design.dots){
+    console.warn(`rose: layer ${li} renders ${sk.total} dots but its card says ${design.dots}` +
+                 ` — sym ${design.sym} doesn't divide ${design.dots}.`);
+  }
+  const geo = new THREEc.BufferGeometry();
+  geo.setAttribute('position', new THREEc.BufferAttribute(new Float32Array(sk.total*3), 3));
+  geo.setAttribute('alpha',    new THREEc.BufferAttribute(new Float32Array(sk.total), 1));
+  const mat = new THREEc.ShaderMaterial({
+    uniforms: { uK:{value:1}, uDiam:{value:ROSE_DOT_WORLD},
+                uColor:{value:new THREEc.Color(ROSE_COLOR)}, uOpacity:{value:0} },
+    vertexShader: _roseVert, fragmentShader: _roseFrag,
+    transparent: true, depthWrite: false,
+    // depthTest off so the stack-up is decided by renderOrder alone: discs (-1/0) < field (1)
+    // < centre dot (2). With it on, the Parker/Network sub-discs sit ABOVE the field's plane
+    // and would punch holes in it wherever they overlap.
+    depthTest: false
+  });
+  const pts = new THREEc.Points(geo, mat);
+  pts.renderOrder = 1;
+  pts.frustumCulled = false;   // positions are rewritten per frame; the initial bounds lie
+  pts.visible = false;
+  o.group.add(pts);
+  o.rose = { sk, design, geo, mat, pts, buf: [], t0: null, vis: 0,
+             ease: _roseBezier(...ROSE_ANIM.bezier),
+             // design units -> layer-local units: put the outer ring at ROSE_FILL of the disc
+             scale: (ROSE_FILL * BASE_R * o.def.scale) / design.radius };
+});
+
+// Paints the field at raw progress t in [0,1]. Pure in t, exactly like the generator's
+// seek() — so it scrubs backwards and can be called at any rate without drift.
+function paintRose(o, t){
+  const R=o.rose, design=R.design, A=ROSE_ANIM;
+  const e = R.ease(_roseClamp(t,0,1));
+  const radius = _roseLerp(A.iRadius, design.radius, e);
+  const rot    = _roseLerp(A.iRot,    design.rot,   e);
+  const twist  = _roseLerp(A.iTwist,  design.twist, e);
+  const gOp    = _roseClamp(_roseLerp(A.iOpacity/100, 1, e), 0, 1);   // overshoot can exceed 1
+  const reveal = _roseLerp(Math.min(A.iDots, R.sk.total), R.sk.total, e);
+  const sym = design.sym;
+  const dots = _roseLayout(R.sk, { radius, rot, twist,
+                                   scatter:design.scatter, mirror:design.mirror, sym }, R.buf);
+  const pos = R.geo.attributes.position.array;
+  const al  = R.geo.attributes.alpha.array;
+  const S   = R.scale;
+  for(let i=0;i<dots.length;i++){
+    const d = dots[i];
+    pos[i*3+0] = d.x * S;
+    pos[i*3+1] = ROSE_Y;
+    pos[i*3+2] = d.y * S;   // the pattern's Y is the model's Z — it lies in the layer's plane
+    // Orbits hold `sym` dots and fade as a unit, so the form stays symmetric mid-bloom.
+    al[i] = gOp * _roseClamp((reveal - d.orbit*sym)/sym, 0, 1);
+  }
+  R.geo.attributes.position.needsUpdate = true;
+  R.geo.attributes.alpha.needsUpdate    = true;
+}
+
+// patient point at top
+const patient = new THREEc.Mesh(new THREEc.SphereGeometry(0.11,24,24),
+                 new THREEc.MeshBasicMaterial({color:P().dot, transparent:true}));
+patient.position.set(0,PATIENT_Y,0);
+root.add(patient);
+
+// vertical axis line connecting centers -> patient
+const axisLine = new THREEc.Line(
+  new THREEc.BufferGeometry().setFromPoints([new THREEc.Vector3(0,0,0), new THREEc.Vector3(0,PATIENT_Y,0)]),
+  new THREEc.LineBasicMaterial({color:P().line, transparent:true, opacity:0.5})
+);
+root.add(axisLine);
+
+// ---------- connection arcs ----------
+const arcsGroup = new THREEc.Group();
+root.add(arcsGroup);
+function buildArcs(){
+  while(arcsGroup.children.length){ const c=arcsGroup.children.pop(); arcsGroup.remove(c); c.geometry.dispose(); }
+  const centers = layerObjs.map(o=>o.def.stackY + SUBS[0].y*o.def.scale + 0.16*o.def.scale);
+  const ys = [...centers, PATIENT_Y];
+  for(let i=0;i<ys.length-1;i++){
+    const y0=ys[i], y1=ys[i+1];
+    [ -1.35,-0.9, 0.9,1.35 ].forEach((bow,bi)=>{
+      const mid=new THREEc.Vector3(0, (y0+y1)/2 + Math.abs(bow)*0.15, bow);
+      const curve=new THREEc.QuadraticBezierCurve3(new THREEc.Vector3(0,y0,0), mid, new THREEc.Vector3(0,y1,0));
+      const geo=randomDashedFromPath(curve.getPoints(120));
+      const mat=new THREEc.LineBasicMaterial({color:P().stroke, transparent:true, opacity:0});
+      const ln=new THREEc.LineSegments(geo,mat);
+      arcsGroup.add(ln);
+    });
+  }
+}
+buildArcs();
+
+// ============================================================
+//  STATES  (scroll keyframes)
+// ============================================================
+// phi = polar angle from +Y (0 = straight down looking); theta = azimuth
+// `up` = the camera's up-vector blend (0 = -Z, for looking straight down without going
+// degenerate; 1 = +Y, normal). It's a STATE PARAM rather than derived from phi — see updateCamera.
+// These values match what `min(1, phi/0.35)` used to produce, so the static views are unchanged.
+const STATES = [
+  { key:'Top',      theta: 0.0,  phi: 0.001, radius: 8.2,  targetY: 1.6, spread: 0, arcs: 0, side: 0, ripple: 1, up: 0.00 },
+  { key:'Expanded', theta: 0.35, phi: 0.10, radius: 9.6,  targetY: 0.6, spread: 1, arcs: 0, side: 0, ripple: 1, up: 0.286 },
+  // radius is solved at runtime by refreshSideRadius() so the base bar lands on CH5_BAR_COLS
+  { key:'Side',     theta: 0.0,  phi: 1.5708, radius: 5.8,  targetY: 1.24, spread: 0, arcs: 0, side: 1, ripple: 0, up: 1.00 },
+  // targetY re-centres on the stack (0 -> PATIENT_Y 5.1)
+  { key:'Tilted',   theta: 0.55, phi: 0.95, radius: 10.6, targetY: 2.55, spread: 0, arcs: 0, side: 0, ripple: 0, up: 1.00 },
+];
+
+let scrollT = 0;         // 0..1 across all states
+let userTheta = 0, userPhi = 0;   // drag offset
+let jump = null;         // direct state-to-state tween (button/pip navigation)
+let lastSt = null;       // last params rendered (used as tween start)
+let suppressScroll = false;
+const lerp=(a,b,t)=>a+(b-a)*t;
+function easeInOut(t){ return t<0.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; }
+
+// interpolate directly between two state param sets (bypasses the scroll path,
+// so e.g. Top -> Tilted never passes through the Side keyframe).
+// Chapter 5's rise uses this to morph Expanded -> Side. `ripple` is included because
+// Expanded ripples (1) and Side doesn't (0) — omit it and the ripples never fade.
+function lerpStates(a,b,e){
+  return {
+    theta: lerp(a.theta,b.theta,e), phi: lerp(a.phi,b.phi,e),
+    radius: lerp(a.radius,b.radius,e), targetY: lerp(a.targetY,b.targetY,e),
+    spread: lerp(a.spread,b.spread,e), arcs: lerp(a.arcs,b.arcs,e), side: lerp(a.side,b.side,e),
+    ripple: lerp(a.ripple,b.ripple,e), up: lerp(a.up,b.up,e),
+  };
+}
+
+function sampleState(t){
+  const n=STATES.length-1;
+  const x=Math.max(0,Math.min(1,t))*n;
+  const i=Math.min(n-1, Math.floor(x));
+  const f=easeInOut(x-i);
+  const A=STATES[i], B=STATES[i+1];
+  return {
+    theta: lerp(A.theta,B.theta,f),
+    phi:   lerp(A.phi,B.phi,f),
+    radius:lerp(A.radius,B.radius,f),
+    targetY:lerp(A.targetY,B.targetY,f),
+    spread:lerp(A.spread,B.spread,f),
+    arcs:  lerp(A.arcs,B.arcs,f),
+    side:  lerp(A.side,B.side,f),
+    ripple:lerp(A.ripple,B.ripple,f),
+    nearest: (x-i)<0.5 ? i : i+1,
+  };
+}
+
+// ---------- layout variants ----------
+// Reference grid: 1440px canvas, 40px margins, 12 columns, 12px gutters.
+// Column span -> horizontal fraction of the canvas the model renders into.
+const _GRID_W = 1440, _M = 40, _G = 12, _COLS = 12;
+const _COLW = (_GRID_W - _M*2 - _G*(_COLS-1)) / _COLS;   // ~102.33px
+function _colSpan(firstCol, count){                       // 1-indexed
+  const x0 = _M + (firstCol-1)*(_COLW+_G);
+  const x1 = x0 + count*_COLW + (count-1)*_G;
+  return { x0: x0/_GRID_W, x1: x1/_GRID_W };
+}
+const LAYOUTS = {
+  immersive: { x0:0, x1:1,          zoom:1.0  },             // centered, full bleed
+  hero:      { ..._colSpan(6, 7),   zoom:1.12 },             // model = right 7 cols (text left 5)
+  editorial: { ..._colSpan(5, 8),   zoom:1.06 },             // model = right 8 cols (text left 4)
+  // Chapter 5. Both sit at zoom 1 so refreshSideRadius() alone controls the bar width
+  // (CH5_BAR_COLS). Because fov is VERTICAL, px-per-world-unit depends only on camera
+  // distance — so sharing a zoom means the bars DON'T resize when we open out to full
+  // bleed. The model just slides from right-of-centre to centre.
+  ch5edit:   { ..._colSpan(5, 8),   zoom:1.0  },   // beats 1-2 — model right 8 cols, photo left
+  ch5full:   { x0:0, x1:1,          zoom:1.0  },   // beats 3-5 — opens out, full bleed
+};
+let regionX=0, regionYtop=0, regionW=0, regionH=0;
+// animated (eased) region — tweens toward the current layout target each frame
+let curL = { ...LAYOUTS.hero };
+function easeLayoutTo(t, k=0.16){
+  curL.x0  += (t.x0 - curL.x0)*k;
+  curL.x1  += (t.x1 - curL.x1)*k;
+  curL.zoom+= ((t.zoom||1) - curL.zoom)*k;
+}
+const MAXW = 1440;   // model region maps within a centered content box (matches DOM grid)
+// Scroll-driven vertical offset of the whole model region, in px.
+// 0 for the hero + chapters 1-4; chapter 5 drives it (see updateCh5).
+// Negative = model pushed up / off the top. Positive = pushed down / below the fold.
+let regionDY = 0;
+function applyLayoutRegion(){
+  const W=window.innerWidth, H=window.innerHeight;
+  const isFull = curL.x0<0.001 && curL.x1>0.999;          // immersive = full bleed
+  const cw = isFull ? W : Math.min(W, MAXW), cl = isFull ? 0 : (W-cw)/2;
+  regionX = cl + curL.x0*cw;
+  regionW = Math.max(1,(curL.x1-curL.x0)*cw);
+  regionYtop = regionDY; regionH = H;
+  camera.aspect = regionW/regionH;
+  camera.updateProjectionMatrix();
+  renderer.setViewport(regionX, H-regionYtop-regionH, regionW, regionH);
+}
+
+// ---------- narrative (scroll-driven scenes) ----------
+// Each scene pins the model VIEW, the LAYOUT region, and the light factor.
+// Scrolling interpolates between consecutive scenes; the dev panel can override
+// any of these temporarily (cleared on the next scroll).
+const STATE_BY_KEY = {}; STATES.forEach((s,i)=>{ STATE_BY_KEY[s.key]=s; s._i=i; });
+
+// ---------- side view: size the base bar in GRID COLUMNS ----------
+// The bar's on-screen width comes from camera distance, but a column is a fraction of the
+// window WIDTH — and because the fov is vertical, the model scales with window HEIGHT. So a
+// hardcoded radius only hits N columns at one window size. Solve for the distance instead
+// and refresh on resize, and "6 columns" stays true everywhere.
+//   px/world = viewportH / (2*d*tan(fov/2))   ->   d = viewportH / (2 * px/world * tan(fov/2))
+const CH5_BAR_COLS = 6;                                   // base bar width, in grid columns
+const _FOV_TAN = Math.tan((38/2) * Math.PI/180);          // camera fov is 38deg, vertical
+function refreshSideRadius(){
+  const cw = Math.min(window.innerWidth, MAXW);
+  const wantPx = ((CH5_BAR_COLS*_COLW + (CH5_BAR_COLS-1)*_G) / _GRID_W) * cw;
+  const pxPerWorld = wantPx / (2*BASE_R);                 // the base bar is 2*BASE_R wide
+  STATE_BY_KEY['Side'].radius = window.innerHeight / (2 * pxPerWorld * _FOV_TAN);
+}
+
+// Per-scene model arrangement: each layer's expanded position [x,z] + size.
+// per-layer: pos [x,z], size, out (1 = outline / no fill, 0 = filled)
+const ARRANGE = {
+  hero: {   // also chapter 1 — all three outlined
+    Institutes:  { pos:[-0.63, 0.87], size:1.11, out:1 },
+    Innovations: { pos:[ 1.49, 1.65], size:0.99, out:1 },
+    Bioventures: { pos:[ 1.36,-1.06], size:1.24, out:1 },
+  },
+  chap2: {   // "An Unparalleled Network" — Institutes fills in
+    Institutes:  { pos:[-1.38,-0.28], size:1.49, out:0 },
+    Innovations: { pos:[ 0.69, 1.62], size:0.74, out:1 },
+    Bioventures: { pos:[ 1.81,-0.33], size:0.95, out:1 },
+  },
+  chap3: {   // "From IP to Patients" — Innovations fills in
+    Institutes:  { pos:[-1.54,-1.59], size:1.10, out:0 },
+    Innovations: { pos:[ 0.16, 0.82], size:1.50, out:0 },
+    Bioventures: { pos:[ 0.92,-1.62], size:0.83, out:1 },
+  },
+  chap4: {   // "Investing in the Best" — Bioventures fills in
+    Institutes:  { pos:[-1.38,-0.28], size:0.98, out:0 },
+    Innovations: { pos:[ 0.88, 1.52], size:1.10, out:0 },
+    Bioventures: { pos:[ 1.51,-0.97], size:1.36, out:0 },
+  },
+  // "Vital Connections". `pos` IS visible now — beat 0 arrives in the expanded view before
+  // flattening. `size` must stay 1.0: it scales the side bars, and 1.0 is what puts them on
+  // CH5_BAR_COLS. `out` is inert (fills are hidden once the cross-section takes over).
+  chap5: {
+    Institutes:  { pos:[-1.24,-0.77], size:1.00, out:0 },
+    Innovations: { pos:[ 0.86, 1.07], size:1.00, out:0 },
+    Bioventures: { pos:[ 1.33,-1.01], size:1.00, out:0 },
+  },
+  // "Delivering Outcomes to Patients" — placeholder, inherits chap5's until it's directed.
+  // Same rule: size stays 1.0 or the side bars leave CH5_BAR_COLS.
+  chap6: {
+    Institutes:  { pos:[-1.24,-0.77], size:1.00, out:0 },
+    Innovations: { pos:[ 0.86, 1.07], size:1.00, out:0 },
+    Bioventures: { pos:[ 1.33,-1.01], size:1.00, out:0 },
+  },
+};
+// Scenes: hero + chapters 1-5. Layout/light/outline/view + per-layer arrangement.
+// `view` is optional and defaults to Expanded (chapters 1-4 all sit in Expanded).
+// `labelK` = per-layer label colour ON THE WHITE BACKGROUND, [Institutes, Innovations,
+// Bioventures]: 0 = #A294FF, 1 = black. Two colours only, so one scalar per layer says it all
+// and eases cleanly. On purple (hero/ch5/ch6) labels are white and this has no effect — but
+// hero mirrors chap1 and ch5/ch6 mirror chap4 so no colour shifts mid-crossfade.
+const LABEL_LILAC = 0xA294FF;
+const SCENES = [
+  { key:'hero',  layout:'hero',      light:0, outline:1, labelK:[0,0,0], layers:ARRANGE.hero  },
+  { key:'chap1', layout:'editorial', light:1, outline:0, labelK:[0,0,0], layers:ARRANGE.hero  },   // inherits hero position/size
+  { key:'chap2', layout:'editorial', light:1, outline:0, labelK:[1,0,0], layers:ARRANGE.chap2 },   // Institutes lands
+  { key:'chap3', layout:'editorial', light:1, outline:0, labelK:[0,1,0], layers:ARRANGE.chap3 },   // ...hands off to Innovations
+  { key:'chap4', layout:'editorial', light:1, outline:0, labelK:[1,1,1], layers:ARRANGE.chap4 },   // all three
+  // the vibe shift: back to purple. `view` here is the ARRIVAL state (what snapLook sets at
+  // the handoff) — the model rises expanded, and CH5_BEATS drives it to Side from there.
+  { key:'chap5', layout:'ch5edit', light:0, outline:0, labelK:[1,1,1], view:'Expanded', layers:ARRANGE.chap5 },
+  // chapter 6 stays purple — no crossfade, only the model + copy move. Arrives as the
+  // cross-section (continuing where ch5 left off) rather than re-staging the flatten.
+  { key:'chap6', layout:'ch5full', light:0, outline:0, labelK:[1,1,1], view:'Side', layers:ARRANGE.chap6 },
+];
+const labelK = [0,0,0];   // eased toward the active scene's labelK, like lightFactor
+let viewOverride=null, layoutOverride=null, lightOverride=null, outlineOverride=null;   // dev-panel temporary overrides
+let curSt = { ...STATE_BY_KEY['Expanded'] };                       // eased model view params
+const smooth = t => { t=Math.max(0,Math.min(1,t)); return t*t*(3-2*t); };
+// cubic-bezier(x1,y1,x2,y2) -> t => eased. Same curve CSS's timing function of that name gives,
+// so values can be lifted straight from a design tool. Bezier x is a function of the curve
+// parameter, not of time, so we solve Bx(s)=t (Newton-Raphson; the x-curve is monotonic for the
+// values used here, so it converges in a couple of steps) and return By(s).
+function cubicBezier(x1,y1,x2,y2){
+  const cx=3*x1, bx=3*(x2-x1)-cx, ax=1-cx-bx;
+  const cy=3*y1, by=3*(y2-y1)-cy, ay=1-cy-by;
+  const fx = s => ((ax*s+bx)*s+cx)*s;
+  const dfx= s => (3*ax*s+2*bx)*s+cx;
+  const fy = s => ((ay*s+by)*s+cy)*s;
+  return t => {
+    if(t<=0) return 0;
+    if(t>=1) return 1;
+    let s=t;
+    for(let i=0;i<8;i++){
+      const d=fx(s)-t; if(Math.abs(d)<1e-6) break;
+      const g=dfx(s);  if(Math.abs(g)<1e-6) break;
+      s-=d/g;
+    }
+    return fy(Math.max(0,Math.min(1,s)));
+  };
+}
+// Shared timing for the big scene moves — the chapter 1-4 arrangement and chapter 5's flatten.
+// A real duration + bezier, not an exponential ease: SCENE_EASE has no ease-IN at all (it does
+// ~11% on the first frame), which reads as a lurch on anything that travels a real distance.
+const EASE_MOVE   = cubicBezier(0.51, 0, 0.37, 1);
+const ARRANGE_DUR = 0.7;   // seconds — chapters 1-4 layer pos / size / fill
+let _arrangeSi = null, _arrangeT = 1;
+const SCENE_EASE = 0.11;   // per-frame ease toward the active scene (~matches the rail number transition)
+const SCENE_TRIGGER = 0.25;   // viewport fraction where a chapter becomes active (lower = more delay)
+function easeStateTo(cur, tgt, k=0.16){
+  for(const key of ['theta','phi','radius','targetY','spread','arcs','side','ripple','up'])
+    cur[key] += ((tgt[key]??cur[key]) - cur[key])*k;
+}
+// Active scene index (0=hero, 1=chapter1, ...) — the deepest chapter past the
+// viewport middle. Changes discretely (in sync with the rail's active number);
+// the model then eases to that scene over a fixed time, independent of scroll.
+function activeSceneIndex(){
+  const mid = window.innerHeight*SCENE_TRIGGER;
+  let s = 0;
+  for(let i=0;i<chapterEls.length;i++){
+    const el=chapterEls[i];
+    if(el && el.getBoundingClientRect().top <= mid) s = i+1;
+  }
+  return Math.min(s, SCENES.length-1);
+}
+function lerpLayout(a,b,e){ return { x0:_mix(a.x0,b.x0,e), x1:_mix(a.x1,b.x1,e), zoom:_mix(a.zoom||1,b.zoom||1,e) }; }
+
+// ---------- chapter 5: beats ----------
+// Sub-scenes WITHIN chapter 5, once the model has risen and pinned. Each beat sets the
+// layout, which layers are lit (`on` — everything else dims to CH5_DIM), which connections
+// are drawn, and an optional context card. Beats are discrete; everything eases toward them.
+const CH5_DIM      = 0.45;   // how far un-lit layers / sub-layers drop back
+const CH5_BEAT_VH  = 0.80;   // default scroll length of a beat (x vh); a beat can override with `vh`
+const CH5_VIEW_DUR = 1.0;    // seconds for the Expanded -> Side morph
+const CH5_CARD_COLS = 3;     // context card width, in grid columns
+// card fade window within a beat, in beatP: in at CH5_CARD_IN (+RAMP), hold, out 0.80->0.92.
+// A chapter can push the start later with `cardIn` — ch6 holds the lit ring on its own for
+// ~half a beat first. The drift pivot is derived from the window, so it follows.
+const CH5_CARD_IN = 0.10, CH5_CARD_OUT = 0.92, CH5_CARD_RAMP = 0.12;
+const CH5_CARD_DRIFT = 100;  // px travelled across the window (~±41), matches the ch1-4 callouts
+const _L_II = ['Institutes','Innovations'], _L_IB = ['Institutes','Bioventures'], _L_BP = ['Bioventures','Patients'];
+const CH5_BEATS = [
+  // Beat 0 is the arrival: the model rises EXPANDED, and the flatten fires as soon as the photo
+  // is fully in frame (`ch5.photoIn`) — ~260px before the pin at 1440x900. No card; it's the
+  // transition. `vh` is sized so the 1.0s tween lands with a short settle before the Roybal
+  // card and no longer: it starts ~260px early, so it ends ~740px after the pin, and 0.9vh
+  // (810px) + the card's 72px fade-in delay leaves ~140px of settle.
+  { vh:0.9, view:'Side', layout:'ch5edit', on:['Institutes'], links:[], card:null },
+  { view:'Side',     layout:'ch5edit', on:['Institutes','Innovations'], links:[_L_II],
+    card:"His work as a Co-Director of the Parker Institute at UCSF and as an Affiliate Investigator at Gladstone &mdash; has led to the licensing of technology to several biopharma companies." },
+  // TRANSITION beat — no card. The photo needs ~720px to clear (it pins at 213 and is ~507
+  // tall), which doesn't fit inside a beat that also has to fade a card in. So the exit and
+  // the move to full bleed get a beat of their own: photo leaves, THEN the model opens out
+  // (gated on ch5.photoGone), and the next card lands on a settled full-bleed model.
+  { view:'Side', layout:'ch5full', on:['Institutes','Innovations'], links:[_L_II], card:null },
+  { view:'Side', layout:'ch5full', on:['Institutes','Innovations','Bioventures'], links:[_L_II,_L_IB],
+    card:"Launched in 2025, Dispatch Bio was built in collaboration with three other Parker Institutes: Penn, Stanford, and Memorial Sloan Kettering." },
+  { view:'Side', layout:'ch5full', on:['Institutes','Innovations','Bioventures'], links:[_L_II,_L_IB],
+    card:`<img class="card-img" src="IMG/group.png" alt="The Dispatch Bio team" />` +
+         `Dispatch raised <strong>$216M</strong> in Series A financing, led by Parker BioVentures and ARCH Ventures.` },
+  { view:'Side', layout:'ch5full', on:['Institutes','Innovations','Bioventures','Patients'], links:[_L_II,_L_IB,_L_BP],
+    card:"A Phase 1 study will launch this year in collaboration with CARsgen." },
+];
+// Chapter 6 — same mechanic. Rises as the cross-section (`arrive:'Side'`) and tilts up into the
+// stacked model once it pins, then walks the three SUB-layers (SUBS: Parker / Network / Impact),
+// one card per beat. Frosted cards, not ch5's solid purple — see `cardVariant`.
+const _CH6_BODY = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec et felis sapien. Sed sit amet egestas turpis. Pellentesque at enim tincidunt, rutrum nibh nec, dapibus neque. Donec mollis lacus eget felis aliquet lobortis.";
+const _CH6_ON = ['Institutes','Innovations','Bioventures','Patients'];
+const _CH6_ALLSUBS = ['Parker','Network','Impact'];
+// `subs` = which SUB-layers are lit; cumulative, so each card lands on its own ring plus the ones
+// before it. Omit it (beat 0, and every ch1-5 beat) and all three stay lit. Un-lit subs drop to
+// CH5_DIM, eased — the same treatment `on` gives the main layers. The dev panel's `hlSubs` is a
+// separate, harder isolate (0.12) for inspection; this is the narrative reveal.
+const CH6_BEATS = [
+  // Beats 0 and 4 are VIEW MOVES with no card. 1.2vh (1080px) because the 1.0s tween eats ~1000px
+  // and the next beat's card fires at cardIn (0.10 = 72px in) — at 1.0vh it'd land mid-move.
+  // Nothing changes state at those boundaries, so they read as one continuous gesture.
+  // Beat 0 tilts up with Parker ALREADY lit — no wireframe state first; it lands on beat 1's look.
+  { vh:1.2, view:'Tilted', layout:'ch5full', on:_CH6_ON, subs:['Parker'], links:[], card:null },
+  { view:'Tilted', layout:'ch5full', on:_CH6_ON, subs:['Parker'], links:[],
+    card:`<strong>Parker</strong> ${_CH6_BODY}` },
+  { view:'Tilted', layout:'ch5full', on:_CH6_ON, subs:['Parker','Network'], links:[],
+    card:`<strong>Network</strong> ${_CH6_BODY}` },
+  { view:'Tilted', layout:'ch5full', on:_CH6_ON, subs:_CH6_ALLSUBS, links:[],
+    card:`<strong>Impact</strong> ${_CH6_BODY}` },
+  // The close: rises to the TOP view, looking straight down the axis — the patient point ends up
+  // dead centre, which is the whole line.
+  { vh:1.2, view:'Top', layout:'ch5full', on:_CH6_ON, subs:_CH6_ALLSUBS, links:[], card:null },
+  { view:'Top', layout:'ch5full', on:_CH6_ON, subs:_CH6_ALLSUBS, links:[],
+    card:`<span class="card-head">Patients are the point</span>${_CH6_BODY}` },
+];
+
+// ---------- chapter 5: the vibe shift ----------
+// The BACKGROUND is not part of this — it's a plain lightFactor crossfade at the scene
+// trigger (white -> purple), exactly like hero -> chapter 1 in reverse. Chapter 5 paints
+// no background of its own. This only moves the MODEL.
+//
+// One anchor: chapter 5's top edge (`top`).
+//
+//   top > 0   EXIT  — the outgoing model scrolls up and out 1:1 with the page, clearing
+//                     the top exactly at top = 0.
+//   top <= 0  ENTER — a fresh instance rises from below the fold, scroll-coupled (not
+//                     eased), passes under the centered copy, then pins.
+//
+// The handoff at top = 0 is why this works: the outgoing model is off the top and the
+// incoming one is off the bottom at the same instant, so the Expanded -> Side view swap
+// can SNAP there without anyone seeing it.
+// Where the risen model pins (x viewport height, + = lower). 0 = dead centre. The copy has
+// scrolled away by the time it pins, so it doesn't need to duck anything.
+const CH5_REST_DY = 0;
+const CH5_ENTER   = 1.00;   // scroll distance the rise takes (x viewport height)
+// same pin height chapters 1-4 use for their copy (.chapter.has-callout .copy)
+const CH5_PHOTO_PIN = vh => 0.375*vh - 125;
+// 4 cols + the 60px inset = 385px content — identical to .chapters-col, so the caption sets
+// to exactly the same measure as the chapter body above (both Caslon 20/140%)
+const CH5_PHOTO_COLS  = 4;
+const CH5_PHOTO_INSET = 60;    // matches .chapters-col's rail inset
+const CH5_PHOTO_EXIT  = 0.60;  // scroll distance the photo takes to fully clear (x vh)
+const CH5_PHOTO_HOLD_BEATS = 2; // pinned through beats 0-1; releases into the transition beat
+// cached — the caption reflows, so the height isn't knowable up front; reset on resize
+let _ch5PhotoH = 0;
+const ch5PhotoH = () => (_ch5PhotoH || (_ch5PhotoH = ch5PhotoEl ? ch5PhotoEl.offsetHeight : 0));
+// A "pinned chapter" — the exit / rise / pin / beats mechanic, shared by chapters 5 and 6.
+//
+// `arrive` + `arrived` are the rise-in-one-view-then-move gesture: the model rises in `arrive`,
+// beat 0's `view` is the DESTINATION, and `arrived(c)` decides when the move fires. ch5 waits for
+// its photo card to be fully in frame; ch6 has no photo, so it defaults to the pin.
+// `cardVariant` picks the context-card look ('solid' = ch5's purple/outlined, '' = frosted).
+function pinnedChapter(id, sceneIdx, beats, opts={}){
+  // cumulative beat boundaries, in viewport heights past the pin (beats aren't uniform)
+  const edges = []; let a = 0;
+  for(const b of beats){ a += (b.vh ?? CH5_BEAT_VH); edges.push(a); }
+  return { id, sceneIdx, beats, edges,
+           enter: opts.enter ?? CH5_ENTER, rest: opts.rest ?? CH5_REST_DY,
+           arrive: opts.arrive ?? null,
+           arrived: opts.arrived ?? (c => c.riseP >= 1),
+           cardVariant: opts.cardVariant ?? '',
+           cardCols: opts.cardCols ?? CH5_CARD_COLS,
+           cardIn: opts.cardIn ?? CH5_CARD_IN,
+           subFill: opts.subFill ?? null,
+           labels: opts.labels ?? true,
+           top:1e9, present:false, entering:false, _was:false,
+           riseP:0, modelDY:0, beat:0, beatP:0,
+           photoY:0, photoGone:false, photoIn:false };
+}
+const PIN = [
+  // rises Expanded, flattens to the cross-section once the photo card is fully in frame
+  pinnedChapter('chapter-5', 5, CH5_BEATS, { arrive:'Expanded', arrived: c => c.photoIn, cardVariant:'solid' }),
+  // rises as the cross-section, tilts up into the stacked model once it pins.
+  // Frosted cards at 4 cols — same treatment as the chapters 1-4 callouts.
+  // subFill: the sub-layer reveal is a FILL, not a dim — see updateHighlight.
+  // labels:false — the tilted view drops them entirely; they fade as ch6 takes over.
+  pinnedChapter('chapter-6', 6, CH6_BEATS,
+    { arrive:'Side', cardCols:4, subFill:0.25, labels:false }),
+];
+const ch5 = PIN[0], ch6 = PIN[1];
+// Two different chapters can be in play at once during a handoff, so the model's TRAVEL and its
+// LOOK are owned separately:
+//   pinTravel = deepest chapter whose top has entered the viewport — it's dragging the previous
+//               instance up and out, then raising its own.
+//   pinOwner  = deepest chapter whose top has PASSED the viewport top — its beats decide what
+//               the model looks like. -1 = none (chapters 1-4).
+// They diverge exactly during an exit: ch6 owns the travel while ch5 still owns the look.
+let pinTravel = -1, pinOwner = -1;
+const outroEl  = document.querySelector('.ch6-outro');
+const footerEl = document.getElementById('footer');
+let modelPatOn = 1;                    // patient point's lit state, from the owning beat's `on`
+const subOn = SUBS.map(() => 1);       // per-sub-layer lit state, from the owning beat's `subs`
+let labelsOn = 1;                      // model labels, from the owning chapter's `labels`
+
+function updatePinned(){
+  const vh = window.innerHeight;
+  pinTravel = -1; pinOwner = -1;
+  PIN.forEach((c,i)=>{
+    const el = document.getElementById(c.id);
+    c.present  = !!el;
+    c.top      = el ? el.getBoundingClientRect().top : 1e9;
+    c.entering = c.present && c.top <= 0;
+    c.riseP    = c.entering ? Math.max(0, Math.min(1, (-c.top)/(c.enter*vh))) : 0;
+    c.modelDY  = c.top > 0 ? Math.min(0, c.top - vh)                   // 1:1 up, gone by top = 0
+                           : _mix(vh, c.rest*vh, smooth(c.riseP));     // below the fold -> pinned
+    if(c.present && c.top <= vh) pinTravel = i;
+    if(c.entering)               pinOwner  = i;
+    // beats run once the model has pinned. During the rise this floors at beat 0, so the model
+    // arrives already in its first beat rather than popping into it.
+    if(c.entering){
+      const u = ((-c.top) - c.enter*vh) / vh;              // viewport heights past the pin
+      let bi = 0;
+      while(bi < c.beats.length-1 && u >= c.edges[bi]) bi++;
+      const s = bi > 0 ? c.edges[bi-1] : 0;
+      c.beat  = bi;
+      c.beatP = Math.max(0, Math.min(1, (u - s) / (c.edges[bi] - s)));
+    } else { c.beat = 0; c.beatP = 0; }
+  });
+  regionDY = pinTravel < 0 ? 0 : PIN[pinTravel].modelDY;
+
+  // ---- the close ----
+  // 1. The model fades out as the outro rises to rest over it (y 100vh -> 40vh).
+  //    Fading the CANVAS works because it's opaque with a purple clear colour and `body` is the
+  //    same purple — so it dissolves into the background rather than revealing anything.
+  // 2. The footer's top edge then drags the model up, exactly as a pinned chapter's exit does.
+  //    Additive: the pinned chapters' own modelDY is 0 by this point.
+  //    The sticky .rail releases on #chapters' bottom edge, which IS the footer's top edge — so
+  //    the rail, the model and the outro all leave together, with no code coupling them.
+  if(outroEl){
+    const oy = outroEl.getBoundingClientRect().top;
+    const t  = Math.max(0, Math.min(1, (vh - oy) / (0.60*vh)));   // 0 at entry, 1 once centred
+    stage.style.opacity = 1 - t;
+  }
+  if(footerEl) regionDY += Math.min(0, footerEl.getBoundingClientRect().top - vh);
+
+  updateCh5PhotoState(vh);
+}
+
+// The photo + caption is chapter 5's alone. Three phases:
+//   1. rides the model's rise (locked to modelDY, so they arrive together)
+//   2. pins where chapters 1-4 pin their copy
+//   3. releases into the transition beat and clears over a fixed scroll distance
+function updateCh5PhotoState(vh){
+  if(!ch5.entering){ ch5.photoIn = false; return; }
+  const top   = ch5.top;
+  const PINY  = CH5_PHOTO_PIN(vh);
+  const hold0 = -ch5.enter*vh;                             // model pinned -> photo pins
+  // pinned through beats 0-1 (arrive+flatten, then the Roybal card), releases into the
+  // transition beat. Read off `edges`, so re-ordering or re-timing beats can't desync it.
+  const hold1 = hold0 - ch5.edges[CH5_PHOTO_HOLD_BEATS-1]*vh;
+  if(top > hold0){        ch5.photoY = PINY + ch5.modelDY; ch5.photoGone = false; }
+  else if(top >= hold1){  ch5.photoY = PINY;               ch5.photoGone = false; }
+  else {
+    // exits over a fixed scroll distance regardless of its height, so `photoGone` (which
+    // gates the move to full bleed) lands at a predictable point in the transition beat
+    const h  = ch5PhotoH();
+    const eP = Math.min(1, (hold1 - top) / (CH5_PHOTO_EXIT*vh));
+    ch5.photoY    = PINY - eP * (PINY + h);
+    ch5.photoGone = (ch5.photoY + h) <= 0;
+  }
+  // Is the photo + caption FULLY in the viewport? This is what fires the flatten — earlier
+  // than the pin, so you watch the move instead of waiting for the rise to settle.
+  //
+  // Computed, not an IntersectionObserver: we position this element ourselves each frame, so
+  // its box is already known exactly and synchronously. IO would re-derive it a frame late,
+  // and `threshold: 1` silently NEVER fires when the element is taller than the viewport —
+  // which would hang the morph forever on a short window.
+  //
+  // The riseP fallback covers that case, and does double duty: once pinned it stays true, so
+  // the flatten doesn't reverse when the photo scrolls away in the transition beat.
+  const ph = ch5PhotoH();
+  ch5.photoIn = (ch5.photoY >= 0 && ch5.photoY + ph <= vh) || ch5.riseP >= 1;
+}
+// The view a pinned chapter should be showing at a given beat, INCLUDING ch5's photoIn gate.
+// Both `frame()` and `snapLook()` go through this — they have to agree, or the snap lands on a
+// view the very next line then tweens away from. (That's exactly what happened: beat 0 declares
+// `view:'Side'` as its DESTINATION, but the gate holds it at Expanded until the photo is in
+// frame, so snapping to the declared view made the model visibly morph Side->Expanded on the way
+// up, then Expanded->Side again.)
+function ownedViewKey(P, beatIdx){
+  if(!P) return null;
+  const bi = Math.max(0, Math.min(P.beats.length-1, beatIdx));
+  // still rising in the arrival view — beat 0's `view` is where it's headed, not where it starts
+  if(P.arrive && bi === 0 && !P.arrived(P)) return P.arrive;
+  return P.beats[bi].view;
+}
+
+// Snap the MODEL's look with no easing. Only safe while it's off-screen — the top = 0 handoff,
+// which is the only place this is used.
+//
+// `beatIdx` is load-bearing: a pinned chapter's SCENE `view`/`layout` is its ARRIVAL state, but
+// scrolling back UP into one from the chapter below has to land on its LAST beat instead —
+// ch5 arrives Expanded/editorial and ends Side/full-bleed, so snapping to the scene would
+// un-flatten it and then morph it back.
+//
+// lightFactor is deliberately NOT snapped — the background crossfade is global and eased.
+function snapLook(sceneIdx, beatIdx){
+  const SC = SCENES[sceneIdx];
+  const P  = PIN.find(c => c.sceneIdx === sceneIdx);
+  const B  = P ? P.beats[Math.max(0, Math.min(P.beats.length-1, beatIdx))] : null;
+  const vk = ownedViewKey(P, beatIdx) || SC.view || 'Expanded';
+  Object.assign(curSt, STATE_BY_KEY[vk]);
+  Object.assign(curL,  LAYOUTS[(B && B.layout) || SC.layout]);
+  outlineF = SC.outline || 0;
+  layerObjs.forEach(o=>{
+    const L = SC.layers[o.def.name];
+    o.curPos = [L.pos[0], L.pos[1]];
+    o.curSize = L.size;
+    o.curOut = L.out ?? 0;
+  });
+  viewToKey = vk; viewT = 1; viewFromSt = null;   // don't let the view tween fight the snap
+  _arrangeSi = null;                              // re-seed the arrangement tween (no-op)
+}
+
+// ---------- highlight state ----------
+let curSide = 0;          // 0..1 how much we're in the flat side view
+let rippleView = 0;       // 0..1 how much ripples should show (top/expanded)
+let rippleSpeed = (9/100)*0.55;   // slider 9
+let rippleEase = 'sine';
+let rippleCount = 2;              // moving rings per layer in filled (white-bg) sections
+const EASING = {
+  linear:    p => p,
+  easeOut:   p => 1 - Math.pow(1-p, 3),
+  easeIn:    p => p*p*p,
+  easeInOut: p => p<0.5 ? 4*p*p*p : 1 - Math.pow(-2*p+2, 3)/2,
+  sine:      p => Math.sin(p*Math.PI/2),
+};
+let hlLayer = -1;         // -1 = none
+let hlSubs  = new Set();  // subset of {0,1,2}
+let arcsManual = null;    // null=auto, true/false override
+let qtyCount = 0;
+let qtyLayer = 0;         // which layer gets quantity dots
+
+// ============================================================
+//  UPDATE
+// ============================================================
+function applyPaletteColors(){
+  const p=P();
+  renderer.setClearColor(p.bg,1);
+  // in outline mode strokes go pure: white on the purple bg, brand purple on white
+  const pure = lerpHex(0xffffff, 0x654CFF, lightFactor);
+  const strokeCol = lerpHex(p.stroke, pure, outlineF);
+  const rippleCol = lerpHex(p.ripple, pure, outlineF);
+  layerObjs.forEach(o=>{
+    o.discs.forEach(d=>{ d.fill.material.color.setHex(d.si===SUBS.length-1 ? 0xD8D2FF : p.fill); d.stroke.material.color.setHex(strokeCol); });
+    o.ripples.forEach(r=>r.material.color.setHex(rippleCol));
+    o.dot.material.color.setHex(p.dot);
+    o.sideBars.forEach(b=>b.material.color.setHex(p.line));
+    o.rippleRings.forEach(rr=>rr.line.material.color.setHex(strokeCol));
+  });
+  patient.material.color.setHex(p.dot);
+  axisLine.material.color.setHex(p.line);
+  arcsGroup.children.forEach(a=>a.material.color.setHex(strokeCol));
+  document.body.classList.toggle('light', lightFactor>0.5);
+}
+
+const _v = new THREEc.Vector3();
+function updateLayout(st){
+  const flat = 1 - st.spread;   // 1 = full 3D dome, 0 = flattened (expanded top)
+  layerObjs.forEach(o=>{
+    // arrangement source: scene-interpolated by default; dev scratch when Layer handles are on
+    let px, pz, size;
+    if(handlesOn){ px=o.def.expanded[0]; pz=o.def.expanded[2]; size=o.def.sizeMul ?? 1; }
+    else if(o.curPos){ px=o.curPos[0]; pz=o.curPos[1]; size=o.curSize; }
+    else { px=o.def.expanded[0]; pz=o.def.expanded[2]; size=o.def.sizeMul ?? 1; }
+    const sx = lerp(0, px, st.spread);
+    const sz = lerp(0, pz, st.spread);
+    // side view has its own (even, compressed) band spacing; Top/Tilted keep the real stack
+    const baseY = _mix(o.def.stackY, o.def.sideY, st.side);
+    const sy = lerp(baseY, 0.0, st.spread);          // flatten heights when expanded
+    o.group.position.set(sx, sy, sz);
+    o.group.scale.setScalar(size);                    // per-layer size (runtime)
+    // collapse the internal dome so the spread-out layers are coplanar and
+    // each center dot sits exactly at its ring center
+    o.discs.forEach(d=>{ d.fill.position.y = d.yo*flat; d.stroke.position.y = d.yo*flat; });
+    o.dot.position.y = o.dotBaseY*flat;
+    // side-view cross-section bars: fade in and space vertically
+    o.sideBars.forEach(bar=>{
+      bar.position.y = bar.userData.yOff * st.side;
+      bar.material.opacity = bar.userData.baseOpacity * st.side;
+      bar.visible = st.side > 0.01;
+    });
+  });
+  // axis line + patient only meaningful when stacked; both follow the side-view compression
+  const stackF = 1 - st.spread;
+  const patY = _mix(PATIENT_Y, SIDE_PATIENT_Y, st.side);
+  patient.position.y = patY;
+  // The sphere is a fixed 0.11 world units, but sideY squashes the stack from 4.9 to 2.48 —
+  // so it reads twice as big in side view. Scale it back there only; Top/Tilted are fine.
+  patient.scale.setScalar(_mix(1, PATIENT_SIDE_SCALE, st.side));
+  axisLine.scale.y = patY / PATIENT_Y;             // geometry is built to PATIENT_Y
+  axisLine.material.opacity = 0.5*stackF*(1 - 0.3*lightFactor);
+  patient.visible = stackF>0.05;
+  patient.material.opacity = stackF * _mix(CH5_DIM, 1, modelPatOn);
+}
+
+function subHighlighted(si){ return hlSubs.size===0 || hlSubs.has(si); }
+function updateHighlight(){
+  const p=P();
+  const solid = 1 - curSide;   // discs give way to the flat cross-section bars in side view
+  const fillOut = 1 - outlineF;                 // fills fade out in outline mode
+  const strokeA = _mix(p.strokeA, 1.0, outlineF); // strokes go to full opacity in outline mode
+  // The fill weights (#D8D2FF @80%, p.fillA) are tuned for the WHITE chapters and don't follow
+  // lightFactor, so they read far too hot on the purple. Halve them there. In practice this only
+  // touches chapter 5's expanded arrival — the hero is outline mode and the rest of ch5 is the
+  // side view, and both hide fills anyway.
+  const fillBg = _mix(0.5, 1.0, lightFactor);
+  // the base (Impact) disc — the bottom one, drawn under the other two — drops a further 25%
+  // on the purple, so the outer ring sits back from the inner fills. White is untouched.
+  const baseBg = _mix(0.75, 1.0, lightFactor);
+  // Chapter 6 replaces the whole fill treatment: its sub-layer reveal is a FILL, not a dim.
+  // Lit rings get a flat white fill at `subFill`; un-lit ones are TRULY outlined (no fill at
+  // all, not a faded one), and every stroke stays at full weight. The #D8D2FF base-disc
+  // treatment doesn't apply — in this look the outermost ring has no fill either.
+  const OWNP = pinOwner >= 0 ? PIN[pinOwner] : null;
+  const subFill = (OWNP && OWNP.subFill != null) ? OWNP.subFill : null;
+  layerObjs.forEach((o,li)=>{
+    const layerActive = (hlLayer===-1) || (hlLayer===li);
+    const lo = o.curOut ?? 0;   // per-layer: 0 = filled, 1 = outline (no fill / white base)
+    o.discs.forEach(d=>{
+      const subActive = subHighlighted(d.si);
+      const active = layerActive && subActive;
+      const dim = (hlLayer!==-1 && !layerActive) || (hlSubs.size>0 && !subActive);
+      const fMul = active ? 1.0 : (dim ? 0.12 : 1.0);
+      const sMul = active ? 1.0 : (dim ? 0.10 : 1.0);
+      const boost = (hlLayer===li && hlSubs.has(d.si)) ? 1.6 : 1.0;
+      const hl = active ? (hlLayer===li?1.3:1.0) : 1.0;
+      // chapter 6's beats light the sub-layers cumulatively; 1 everywhere else
+      const sOn = _mix(CH5_DIM, 1, subOn[d.si]);
+      if(subFill != null){
+        // ch6: flat white fill on the lit rings, NOTHING on the un-lit ones (truly outlined).
+        // No fillBg/baseBg — subFill is an absolute opacity, and strokes are left alone.
+        d.fill.material.color.setHex(0xFFFFFF);
+        d.fill.material.opacity = subFill * subOn[d.si] * fMul * hl * solid * fillOut;
+      } else if(d.si === SUBS.length-1){
+        // base disc: filled #D8D2FF @80% -> outline white @60%
+        d.fill.material.color.setHex(lerpHex(0xD8D2FF, 0xFFFFFF, lo));
+        d.fill.material.opacity = _mix(0.8, 0.6, lo) * fMul * hl * solid * fillOut * fillBg * baseBg * sOn;
+      } else {
+        // inner fills: present when filled, gone when outlined
+        d.fill.material.opacity = p.fillA * (1-lo) * fMul * hl * solid * fillOut * fillBg * sOn;
+      }
+      d.stroke.material.opacity = strokeA * sMul * boost * solid * (subFill != null ? 1 : sOn);
+    });
+    // static outer rings give way to the moving ripples when they're active
+    const staticRipMul = rippleSpeed>0 ? (1-rippleView) : 1;
+    o.ripples.forEach((r,ri)=>{
+      const base=0.42-ri*0.10;
+      r.material.opacity = base * ((hlLayer===-1||hlLayer===li)?1:0.12) * solid * staticRipMul;
+      r.visible = r.material.opacity > 0.005;
+    });
+    o.dot.material.transparent=true;
+    o.dot.material.opacity = ((hlLayer===-1||hlLayer===li)?1:0.2) * solid;
+    // side bars respect the layer highlight (dim non-highlighted layers) and, in chapter 5,
+    // the current beat's lit set (`curOn`)
+    const onF = _mix(CH5_DIM, 1, o.curOn ?? 1);
+    o.sideBars.forEach(bar=>{
+      const dimL = (hlLayer!==-1 && hlLayer!==li) ? 0.15 : 1.0;
+      const dimS = subHighlighted(bar.userData.si) ? 1.0 : 0.15;
+      bar.material.opacity = bar.userData.baseOpacity * curSide * dimL * dimS * onF
+                           * _mix(CH5_DIM, 1, subOn[bar.userData.si]);
+    });
+  });
+}
+
+function updateRipples(t){
+  const ease = EASING[rippleEase] || EASING.easeOut;
+  const p0 = P();
+  const animOn = rippleSpeed > 0 && rippleView > 0.01;
+  const NSUB = SUBS.length;
+  layerObjs.forEach((o,li)=>{
+    const base = BASE_R*o.def.scale;
+    const rStart = base*1.0;                       // start at the Impact (outer filled) edge
+    const amp    = base*0.74;                       // how far the ripple travels
+    const layerDim = (hlLayer!==-1 && hlLayer!==li) ? 0.15 : 1.0;
+
+    // extra ripple rings: used in filled mode; fade out in outline mode.
+    // only `rippleCount` of them animate, evenly staggered.
+    o.rippleRings.forEach((rr, idx)=>{
+      const on = animOn && outlineF < 0.99 && idx < rippleCount;
+      if(!on){ rr.line.visible=false; return; }
+      const p = (((t*rippleSpeed + idx/Math.max(1,rippleCount)) % 1) + 1) % 1;
+      const r = rStart + ease(p)*amp;
+      rr.line.scale.set(r, 1, r);
+      rr.line.material.opacity = Math.sin(p*Math.PI) * p0.strokeA * 0.5 * rippleView * layerDim * (1-outlineF);
+      rr.line.visible = true;
+    });
+
+    // outline mode: the three sub-layer strokes themselves ripple outward,
+    // staggered so ~three rings sweep the layer at once (no static rings)
+    if(outlineF > 0.001 && animOn){
+      const maxR = base*1.5;
+      o.discs.forEach(d=>{
+        const p = (((t*rippleSpeed + d.si/NSUB) % 1) + 1) % 1;
+        const rTarget = ease(p)*maxR;
+        const animScale = d.r > 1e-4 ? rTarget/d.r : 1;
+        d.stroke.scale.setScalar(_mix(1, animScale, outlineF));
+        d.stroke.material.opacity = _mix(d.stroke.material.opacity, Math.sin(p*Math.PI)*layerDim, outlineF);
+      });
+    } else {
+      o.discs.forEach(d=>d.stroke.scale.setScalar(1));
+    }
+  });
+}
+
+function updateArcs(st){
+  const auto = st.arcs;
+  const want = arcsManual===null ? auto : (arcsManual?1:0);
+  arcsGroup.children.forEach((a,i)=>{
+    a.material.opacity = want * 0.85;
+    a.visible = want>0.02;
+  });
+}
+
+function updateQuantity(){
+  layerObjs.forEach((o,li)=>{
+    const n = (li===qtyLayer) ? qtyCount : 0;
+    const arr = o.qtyGeo.attributes.position.array;
+    const rOuter = BASE_R*o.def.scale*RIPPLES[0]*0.99;
+    for(let i=0;i<n;i++){
+      const a = i/n*Math.PI*2 - Math.PI/2;
+      arr[i*3+0]=Math.cos(a)*rOuter;
+      arr[i*3+1]=0.01;
+      arr[i*3+2]=Math.sin(a)*rOuter;
+    }
+    o.qtyGeo.attributes.position.needsUpdate=true;
+    o.qtyGeo.setDrawRange(0,n);
+    o.qtyPts.material.size = 0.13;
+  });
+}
+
+// ---------- camera ----------
+const camReadEl = document.getElementById('camread');
+function updateCamera(st){
+  const theta = st.theta + userTheta;
+  const phi   = Math.max(0.001, Math.min(Math.PI/2, st.phi + userPhi));
+  const R=st.radius * curL.zoom;
+  const tx=0, ty=st.targetY, tz=0;
+  camera.position.set(
+    tx + R*Math.sin(phi)*Math.cos(theta),
+    ty + R*Math.cos(phi),
+    tz + R*Math.sin(phi)*Math.sin(theta)
+  );
+  // dev readout — the EFFECTIVE angles, i.e. including any drag-orbit. Paste straight into STATES.
+  if(camReadEl) camReadEl.textContent = `phi ${phi.toFixed(3)} · theta ${theta.toFixed(3)}`;
+  // Stable up-vector: near-overhead, blend up toward -Z so straight-down looking doesn't go
+  // degenerate and stays perfectly centered.
+  //
+  // This is INTERPOLATED as a state param, not derived from phi. Deriving it (k = phi/0.35)
+  // finishes the whole roll by t=0.26 of an Expanded->Side morph, because phi crosses 0.35
+  // that early — so the move reads as a rotation and THEN a separate orbit. As a state param
+  // it travels 0.286 -> 1 across the full morph, in unison with phi/radius/spread: one gesture.
+  //
+  // While drag-orbiting we fall back to deriving it, since st.up can't know about userPhi.
+  const k = (userPhi === 0 && st.up != null) ? st.up : Math.min(1, phi/0.35);
+  camera.up.set(0, k, -(1-k)).normalize();
+  camera.lookAt(tx,ty,tz);
+}
+
+// ---------- DOM labels ----------
+const SIDE_LABEL_DY = 50;   // side view: how far the label sits UNDER its bar (px)
+const labelEls = {};
+function makeLabel(cls,html){ const d=document.createElement('div'); d.className=cls; d.innerHTML=html; document.body.appendChild(d); return d; }
+LAYERS.forEach(L=>{ labelEls[L.name]=makeLabel('layer-label',L.name); });
+const patientLabel = makeLabel('layer-label patient-label','Patients');
+const qtyLabel = makeLabel('qty-label','<span class="num">0</span><span class="cap"></span>');
+
+// ---------- adjustable label offsets (screen-space px per layer) ----------
+// Label offsets are PER CHAPTER (screen px, tuned for the expanded view) and ease between
+// scenes exactly like ARRANGE does for the layers — a label often wants a different spot once
+// its layer has moved. `_LOFF_BASE` is the shared starting point; each scene lists only what
+// it overrides, so the diffs are the interesting part.
+const _LOFF_BASE = {
+  Institutes:  { x: 64, y: -22 },
+  Innovations: { x:292, y:  55 },
+  Bioventures: { x:273, y: -68 },
+  Patients:    { x:  0, y:   0 },
+};
+const _loff = (over={}) => ({
+  Institutes:  { ..._LOFF_BASE.Institutes,  ...(over.Institutes  || {}) },
+  Innovations: { ..._LOFF_BASE.Innovations, ...(over.Innovations || {}) },
+  Bioventures: { ..._LOFF_BASE.Bioventures, ...(over.Bioventures || {}) },
+  Patients:    { ..._LOFF_BASE.Patients,    ...(over.Patients    || {}) },
+});
+const LABEL_OFF = {           // keyed by SCENES[].key
+  hero:  _loff(),
+  chap1: _loff(),
+  chap2: _loff({ Institutes:  { x: 38, y:-239 } }),
+  chap3: _loff({ Innovations: { x:335, y: 230 } }),
+  chap4: _loff(),
+  chap5: _loff(),             // ch5/ch6 flatten to the side view, where offsets fade out
+  chap6: _loff(),
+};
+// The LIVE, eased offsets — what updateLabels reads and what a panel drag writes. Eased
+// toward LABEL_OFF[current scene] each frame (see frame()), except while a drag owns them.
+const labelOffsets = _loff();
+let curSceneKey = 'chap1';    // set per frame; tells a drag which chapter it's editing
+let _labelDragging = false;
+let labelEditOn = false;
+const allLabelEls = [...Object.values(labelEls), patientLabel];
+allLabelEls.forEach(el=>{ const s=document.createElement('span'); s.className='loff'; el.appendChild(s); });
+(function setupLabelDrag(){
+  const targets = LAYERS.map(L=>({el:labelEls[L.name], name:L.name})).concat([{el:patientLabel, name:'Patients'}]);
+  let drag=null;
+  targets.forEach(t=>{
+    t.el.addEventListener('pointerdown', e=>{
+      if(!labelEditOn) return; e.stopPropagation(); e.preventDefault();
+      const off=labelOffsets[t.name];
+      drag={t, sx:e.clientX, sy:e.clientY, ox:off.x, oy:off.y};
+      _labelDragging=true;    // suspends the per-frame ease so it can't fight the drag
+      t.el.setPointerCapture(e.pointerId);
+    });
+    t.el.addEventListener('pointermove', e=>{
+      if(!drag || drag.t!==t) return;
+      const off=labelOffsets[t.name];
+      off.x = drag.ox + (e.clientX-drag.sx);
+      off.y = drag.oy + (e.clientY-drag.sy);
+    });
+    const end=e=>{
+      if(drag && drag.t===t){
+        const off=labelOffsets[t.name];
+        // Bake into the CHAPTER being viewed, not the global — otherwise the ease would drag
+        // the label straight back to that scene's stored value the moment you let go.
+        const tgt = LABEL_OFF[curSceneKey] && LABEL_OFF[curSceneKey][t.name];
+        if(tgt){ tgt.x = off.x; tgt.y = off.y; }
+        console.log(`${curSceneKey} · ${t.name}: { x:${Math.round(off.x)}, y:${Math.round(off.y)} }`);
+        drag=null; _labelDragging=false;
+        try{t.el.releasePointerCapture(e.pointerId);}catch(_){}
+      }
+    };
+    t.el.addEventListener('pointerup', end);
+    t.el.addEventListener('pointercancel', end);
+  });
+})();
+
+function projectToScreen(v){
+  _v.copy(v); _v.project(camera);
+  // map NDC into the model's sub-viewport region (matches the WebGL viewport)
+  return { x: regionX + (_v.x*0.5+0.5)*regionW, y: regionYtop + (-_v.y*0.5+0.5)*regionH, z:_v.z };
+}
+
+// ---------- editable layer-position handles (expanded top view only) ----------
+let handlesOn = false;
+const handleEls = [];
+const _rayc = new THREEc.Raycaster();
+const _dragPlane = new THREEc.Plane(new THREEc.Vector3(0,1,0), 0);   // y = 0
+let dragLayer = -1;
+function screenToPlane(clientX, clientY){
+  const nx = ((clientX - regionX)/regionW)*2 - 1;
+  const ny = -(((clientY - regionYtop)/regionH)*2 - 1);
+  _rayc.setFromCamera({x:nx, y:ny}, camera);
+  const pt = new THREEc.Vector3();
+  return _rayc.ray.intersectPlane(_dragPlane, pt) ? pt : null;
+}
+layerObjs.forEach((o,li)=>{
+  const el=document.createElement('div');
+  el.className='layer-handle';
+  el.innerHTML='<span class="hval"></span>';
+  el.style.display='none';
+  document.body.appendChild(el);
+  handleEls.push(el);
+  el.addEventListener('pointerdown', e=>{
+    e.stopPropagation(); e.preventDefault();
+    dragLayer=li; el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener('pointermove', e=>{
+    if(dragLayer!==li) return;
+    const p=screenToPlane(e.clientX, e.clientY);
+    if(p){ o.def.expanded[0]=p.x; o.def.expanded[2]=p.z; }
+  });
+  const end=e=>{
+    if(dragLayer===li){
+      console.log(`${o.def.name} expanded: [${o.def.expanded[0].toFixed(2)}, 0, ${o.def.expanded[2].toFixed(2)}]`);
+    }
+    dragLayer=-1; try{el.releasePointerCapture(e.pointerId);}catch(_){}
+  };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+});
+const _hwp = new THREEc.Vector3();
+function updateHandles(st){
+  const show = handlesOn ? Math.max(0, Math.min(1, (st.spread-0.55)/0.45)) : 0;
+  handleEls.forEach((el,li)=>{
+    if(show < 0.05){ el.style.display='none'; return; }
+    const o=layerObjs[li];
+    o.group.getWorldPosition(_hwp);
+    const s=projectToScreen(_hwp);
+    el.style.display='block';
+    el.style.left=s.x+'px'; el.style.top=s.y+'px';
+    el.style.opacity=show;
+    el.querySelector('.hval').textContent=`${o.def.expanded[0].toFixed(2)}, ${o.def.expanded[2].toFixed(2)}`;
+  });
+}
+function updateLabels(st){
+  // hero = purple chip + white 80% text; chapters = plain dark text (chip fades out)
+  // chip alpha follows scroll (not the slow bg crossfade) so it drops out immediately
+  // on scroll instead of lingering as a mismatched purple during the fade
+  const chipA = Math.max(0, 1 - window.scrollY/20);       // full at top -> transparent within 20px
+  const labelBg = `rgba(101,76,255,${chipA})`;
+  const ta = _mix(0.8, 1.0, lightFactor);                 // 80% -> 100%
+  const css = hex => `rgba(${(hex>>16)&255},${(hex>>8)&255},${hex&255},${ta})`;
+  // On purple every label is white. On white each LAYER label picks its own colour from the
+  // scene's eased labelK (#A294FF <-> black); the patient label isn't per-scene and just goes
+  // black, as it always did.
+  const labelFgFor = li => css(lerpHex(0xffffff, lerpHex(LABEL_LILAC, 0x000000, labelK[li]), lightFactor));
+  const labelFg = css(lerpHex(0xffffff, 0x000000, lightFactor));
+  layerObjs.forEach((o,li)=>{
+    const el=labelEls[o.def.name];
+    const wp=new THREEc.Vector3(); o.group.getWorldPosition(wp);
+    const domeTop=(SUBS[0].y*o.def.scale)+0.16;
+    // top views: label by the raised center; side view: drop to the base bar
+    const y = wp.y + lerp(domeTop, 0, curSide);
+    const xoff = lerp(BASE_R*o.def.scale*0.75, 0, curSide);
+    const s=projectToScreen(new THREEc.Vector3(wp.x - xoff, y, wp.z));
+    // Side view: sit flush with the left edge of this layer's base bar, just under it.
+    // (the side camera looks down -X, so screen-left is +Z.) Labels are centred by their
+    // transform, hence the +w/2. The per-layer offsets are tuned for the EXPANDED view,
+    // so fade them out as we go flat or they'd drag labels off the bar.
+    const off=labelOffsets[o.def.name];
+    const offF = 1 - curSide;
+    const barHalf = BASE_R * o.def.scale * (o.curSize ?? 1);
+    const edge = projectToScreen(new THREEc.Vector3(0, wp.y, wp.z + barHalf));
+    const left = lerp(s.x, edge.x + el.offsetWidth/2, curSide) + off.x*offF;
+    const topY = lerp(s.y-14, edge.y + SIDE_LABEL_DY, curSide) + off.y*offF;
+    el.style.left=left+'px'; el.style.top=topY+'px';
+    el.style.background=labelBg; el.style.color=labelFgFor(li);
+    const dim = (hlLayer===-1||hlLayer===li) ? 1 : 0.35;   // dim non-highlighted layers
+    // in chapter 5, un-lit layers' labels drop back with their bars
+    el.style.opacity = (s.z<1 ? 1 : 0) * dim * _mix(CH5_DIM, 1, o.curOn ?? 1) * labelsOn;
+    if(labelEditOn) el.querySelector('.loff').textContent = ` (${Math.round(off.x)}, ${Math.round(off.y)})`;
+  });
+  const ps=projectToScreen(new THREEc.Vector3(0,patient.position.y+0.15,0));
+  const poff=labelOffsets['Patients'];
+  // side view: align to the same left edge as the layer labels (widest base bar)
+  const pHalf = BASE_R * Math.max(...layerObjs.map(o=>o.def.scale*(o.curSize ?? 1)));
+  const pEdge = projectToScreen(new THREEc.Vector3(0, patient.position.y, pHalf));
+  const pLeft = lerp(ps.x + poff.x*(1-curSide), pEdge.x + patientLabel.offsetWidth/2, curSide);
+  const pTop  = lerp(ps.y - 18 + poff.y*(1-curSide), ps.y - 18, curSide);
+  patientLabel.style.left=pLeft+'px'; patientLabel.style.top=pTop+'px';
+  patientLabel.style.background=labelBg; patientLabel.style.color=labelFg;
+  patientLabel.style.opacity=((patient.visible && ps.z<1)?1:0) * _mix(CH5_DIM, 1, modelPatOn) * labelsOn;
+  if(labelEditOn) patientLabel.querySelector('.loff').textContent = ` (${Math.round(poff.x)}, ${Math.round(poff.y)})`;
+
+  // quantity label near the highlighted qty layer
+  if(qtyCount>0){
+    const o=layerObjs[qtyLayer];
+    const wp=new THREEc.Vector3(); o.group.getWorldPosition(wp);
+    wp.y += 0.02;
+    const s=projectToScreen(new THREEc.Vector3(wp.x, wp.y, wp.z - BASE_R*o.def.scale*RIPPLES[0]*1.25));
+    qtyLabel.style.left=s.x+'px'; qtyLabel.style.top=s.y+'px';
+    qtyLabel.style.opacity = s.z<1?1:0;
+    qtyLabel.querySelector('.num').textContent=qtyCount;
+    qtyLabel.querySelector('.cap').textContent=document.getElementById('qty-cap').value;
+    qtyLabel.querySelector('.cap').style.color=labelFg;   // was an undefined `fg` — threw and killed the render loop
+  } else { qtyLabel.style.opacity=0; }
+}
+
+// ---------- pips ----------
+const pipWrap=document.getElementById('statepips');
+STATES.forEach((s,i)=>{
+  const p=document.createElement('div'); p.className='pip'; p.title=s.key;
+  p.onclick=()=>setView(i);
+  pipWrap.appendChild(p);
+});
+function updatePips(nearest){
+  [...pipWrap.children].forEach((p,i)=>p.classList.toggle('on', i===nearest));
+}
+
+// ---------- narrative content (fade hero out, chapter + rail in) ----------
+const heroCopyEl = document.querySelector('.hero-copy');
+const railEl     = document.getElementById('rail');
+// The whole 1-4 column rides the crossfade: its copy is dark-on-white, so it has to be
+// gone by the time the background is purple (chapter 5). Chapter 5's copy lives outside
+// this column and stays at full opacity.
+const chapCopyEl = document.querySelector('.chapters-col');
+const railItems  = [...document.querySelectorAll('.rail-item')];
+const chapterEls = railItems.map((_,i)=>document.getElementById('chapter-'+(i+1)));
+const railInner  = document.querySelector('.rail-inner');
+let railOffset   = 0;   // downward nudge so the "1" meets the rising headline on entry
+// clicking an index dot scrolls to that chapter (only ones that exist)
+railItems.forEach((it,i)=>{
+  it.onclick=()=>{ const el=chapterEls[i]; if(el) el.scrollIntoView({behavior:'smooth', block:'center'}); };
+  it.style.cursor = chapterEls[i] ? 'pointer' : 'default';
+});
+function activeChapter(){
+  const mid = window.innerHeight*0.5;
+  let a = 0;
+  chapterEls.forEach((el,i)=>{ if(el && el.getBoundingClientRect().top <= mid) a = i; });
+  return a;   // 0-based index of the deepest chapter past the viewport middle
+}
+// ---------- optional per-chapter context callouts (fade up & out over the model) ----------
+const CALLOUTS = {   // chapter number -> HTML (omit a chapter for no callout)
+  1: "We built an all-in ecosystem that functions fluidly across three key phases of drug development: discovery, IP development, and clinical trials.",
+  2: "<strong>140</strong> Researchers across <strong>19</strong> institutions",
+  3: "<strong>56</strong> Licensed technologies and growing",
+  4: "Revenue from licensing and acquisitions then goes back into research.",
+};
+const calloutEl = document.createElement('div');
+calloutEl.className = 'callout';
+document.body.appendChild(calloutEl);
+// give callout chapters the extra-scroll / pinned-copy treatment
+for(const key in CALLOUTS){ const el=document.getElementById('chapter-'+key); if(el) el.classList.add('has-callout'); }
+// 0..1 scroll progress through a pinned chapter
+function chapterProgress(el, vh){
+  const r = el.getBoundingClientRect();
+  return Math.max(0, Math.min(1, -r.top / Math.max(1, r.height - vh)));
+}
+// A callout comes and goes while the copy is pinned: fade in, hold, fade out — with a tail
+// afterward so there's room to scroll on to the next chapter. The rose overlays share this
+// window, which is the whole point: they have to arrive and leave WITH their card.
+const CARD_IN = 0.40;
+function calloutOpacity(cp){
+  return Math.max(0, Math.min((cp-CARD_IN)/0.12, (0.94-cp)/0.12, 1));   // full-opacity hold ~30% longer
+}
+function updateCallouts(){
+  const vh = window.innerHeight;
+  let best=null, bestOp=0, bestCp=0.5;
+  for(const key in CALLOUTS){
+    const el = document.getElementById('chapter-'+key);
+    if(!el) continue;
+    const cp = chapterProgress(el, vh);
+    const op = calloutOpacity(cp);
+    if(op > bestOp){ bestOp=op; best=key; bestCp=cp; }
+  }
+  if(bestOp < 0.01){ calloutEl.style.opacity=0; return; }
+  calloutEl.innerHTML = CALLOUTS[best];
+  const cw = Math.min(window.innerWidth, MAXW);
+  calloutEl.style.width = (((4*_COLW + 3*_G)/1440) * cw) + 'px';   // 4 columns wide
+  calloutEl.style.left = (regionX + regionW/2) + 'px';            // centered in the model container
+  calloutEl.style.top  = (vh*0.5) + 'px';
+  const drift = (0.67 - bestCp) * 150;                            // drifts upward as it comes and goes
+  calloutEl.style.transform = `translate(-50%, calc(-50% + ${drift}px))`;
+  calloutEl.style.opacity = bestOp;
+}
+
+// Each rose keys off `effSi` — the SAME scene index that fires the model's ARRANGE tween — so
+// the field starts opening on the exact frame the layers start moving into place, rather than
+// waiting for the card. Takes effSi as an argument rather than recomputing: it has to be the
+// same value the model used this frame, or the two could disagree on a boundary frame.
+function updateRoses(effSi){
+  const now = performance.now();
+  // gl_PointSize is in DEVICE pixels; the viewport is regionH CSS px tall at fov 38.
+  const uK = (regionH * renderer.getPixelRatio() / 2) / _FOV_TAN;
+  for(const key in ROSE_LAYERS){
+    const o = layerObjs[+key];
+    if(!o || !o.rose) continue;
+    const R = o.rose;
+    const active = (effSi === ROSE_LAYERS[key].chapter);
+    if(active && R.t0 == null) R.t0 = now;   // model just changed state — start the clock
+    // Entrance is the bloom's own job (ROSE_ANIM.iOpacity ramps 0 -> 100 inside paintRose), so
+    // `vis` only handles the EXIT: eased on SCENE_EASE, the same rate the model rearranges at,
+    // so the field dissolves as the layers move on instead of cutting out.
+    if(active) R.vis = 1;
+    else       R.vis += (0 - R.vis) * SCENE_EASE;
+    if(!active && R.vis < 0.01){ R.pts.visible = false; R.t0 = null; continue; }  // re-arm
+    R.pts.visible = true;
+    R.mat.uniforms.uOpacity.value = R.vis;
+    R.mat.uniforms.uK.value = uK;
+    // the layer group is scaled per frame; fold that in so dots scale with the layer
+    R.mat.uniforms.uDiam.value = ROSE_DOT_WORLD * o.group.scale.x;
+    const t = (_roseReduceMQ && _roseReduceMQ.matches)
+      ? 1                                            // reduced motion: land on the final form
+      : Math.min(1, (now - R.t0) / ROSE_ANIM.dur);
+    paintRose(o, t);
+  }
+}
+
+// ---------- connection lines between layer centers, drawn in per chapter ----------
+// layerObjs: 0 = Institutes, 1 = Innovations, 2 = Bioventures
+const LINKS = [
+  { from:0, to:1, at:3 },             // Institutes -> Innovations  (chapter 3)
+  { from:1, to:2, at:4 },             // Innovations -> Bioventures (chapter 4)
+  { from:2, to:0, at:4, card:true },  // Bioventures -> Institutes  (when the chapter-4 card appears)
+];
+const linksSvg = document.getElementById('links');
+LINKS.forEach(L=>{
+  L.el = document.createElementNS('http://www.w3.org/2000/svg','line');
+  L.el.setAttribute('class','link-line');
+  L.progress = 0;
+  linksSvg.appendChild(L.el);
+});
+const _lpa = new THREEc.Vector3(), _lpb = new THREEc.Vector3();
+function updateLinks(si){
+  // chapter-4 scroll progress (drives the card-triggered link)
+  let cp4 = 0;
+  const el4 = document.getElementById('chapter-4');
+  if(el4){ const r=el4.getBoundingClientRect(); cp4 = Math.max(0, Math.min(1, -r.top/Math.max(1, r.height-window.innerHeight))); }
+  LINKS.forEach(L=>{
+    const target = L.card ? ((si>=4 && cp4 >= 0.42) ? 1 : 0)   // draws when the chapter-4 card appears
+                          : ((si >= L.at) ? 1 : 0);            // draws when its chapter triggers
+    L.progress += (target - L.progress) * 0.06;                 // trim-path style reveal
+    // in side view every center collapses onto the vertical axis, so the links would
+    // pile up on top of it — fade them out as the cross-section takes over.
+    // The ch5 gate is separate and load-bearing: the risen instance STARTS expanded
+    // (curSide 0), so `1 - curSide` alone would let these ch3/ch4 links draw on it.
+    const vis = L.progress * (1 - curSide) * (pinOwner >= 0 ? 0 : 1);
+    if(vis < 0.004){ L.el.style.opacity = 0; return; }
+    L.el.style.opacity = vis;
+    layerObjs[L.from].dot.getWorldPosition(_lpa);
+    layerObjs[L.to].dot.getWorldPosition(_lpb);
+    const a = projectToScreen(_lpa), b = projectToScreen(_lpb);
+    L.el.setAttribute('x1', a.x); L.el.setAttribute('y1', a.y);
+    L.el.setAttribute('x2', a.x + (b.x-a.x)*L.progress);   // grows from `from` toward `to`
+    L.el.setAttribute('y2', a.y + (b.y-a.y)*L.progress);
+  });
+}
+
+// css rgba() string lerped between two (color, alpha) pairs
+function rgbaMix(c1,a1,c2,a2,t){
+  const c = lerpHex(c1,c2,t), a = _mix(a1,a2,t);
+  return `rgba(${(c>>16)&255},${(c>>8)&255},${c&255},${a.toFixed(3)})`;
+}
+let railF = 0;   // rail visibility — separate from lightFactor, see below
+// ---------- chapter 5 connection arcs (side view) ----------
+// Big dashed beziers hopping from one base bar to another. Drawn as SVG (chunky dashes +
+// a clean draw-in are far easier there than in baked LineSegments geometry), but the
+// control points are projected from 3D so the arcs track the model as it rises and opens out.
+// z0/z1 = where the arc leaves / lands along a bar's width (world; bar spans -1.5..+1.5,
+// and screen-left is +Z). They're per-arc so the two Institutes arcs don't launch from the
+// same point and overlap. bow = how far above the higher node it peaks. All eyeball knobs.
+const CH5_ARCS = [
+  { from:'Institutes',  to:'Innovations', z0: 0.95, z1:-0.95, bow:0.85 },
+  { from:'Institutes',  to:'Bioventures', z0:-0.55, z1: 0.95, bow:0.55 },
+  { from:'Bioventures', to:'Patients',    z0: 0.55, z1: 0.00, bow:0.30 },
+];
+// Only the connection the CURRENT beat introduces is dashed; ones carried over from earlier
+// beats settle to solid + thin. `cur` eases between the two so it doesn't pop. The dash LENGTH
+// is fixed and the GAP scales with `cur` — `11 0` renders solid, so one value morphs both.
+const CH5_ARC_DASH   = 11;
+const CH5_ARC_W_CUR  = 5;    // current connection — dashed, heavy
+const CH5_ARC_W_PAST = 2;    // settled connections — solid, thin
+CH5_ARCS.forEach(A=>{
+  A.el = document.createElementNS('http://www.w3.org/2000/svg','path');
+  A.el.setAttribute('class','ch5-arc');
+  A.progress = 0;
+  A.cur = 0;
+  linksSvg.appendChild(A.el);
+});
+// an arc is "current" if this beat has it and the previous beat of the SAME chapter didn't.
+// A beat that introduces nothing (same links as the one before) reads as all-settled.
+function ch5ArcIsCurrent(A, OWN){
+  if(!OWN) return false;
+  const has = (beat) => !!beat && beat.links.some(([f,t]) => f===A.from && t===A.to);
+  return has(OWN.beats[OWN.beat]) && !has(OWN.beat > 0 ? OWN.beats[OWN.beat-1] : null);
+}
+function ch5NodeY(name){
+  if(name === 'Patients') return patient.position.y;
+  const o = layerObjs.find(x=>x.def.name===name);
+  return o ? o.group.position.y : 0;
+}
+// de Casteljau: control points of the sub-curve from t=0 to t=tt
+function trimQuad(p0,p1,p2,tt){
+  const a = { x:_mix(p0.x,p1.x,tt), y:_mix(p0.y,p1.y,tt) };
+  const b = { x:_mix(p1.x,p2.x,tt), y:_mix(p1.y,p2.y,tt) };
+  return { q1:a, q2:{ x:_mix(a.x,b.x,tt), y:_mix(a.y,b.y,tt) } };
+}
+const _av = new THREEc.Vector3();
+function updateCh5Arcs(){
+  const OWN = pinOwner >= 0 ? PIN[pinOwner] : null;
+  const B   = OWN ? OWN.beats[OWN.beat] : null;
+  CH5_ARCS.forEach(A=>{
+    const want = (B && B.links.some(([f,t])=>f===A.from && t===A.to)) ? 1 : 0;
+    A.progress += (want - A.progress) * 0.06;
+    A.cur      += ((ch5ArcIsCurrent(A, OWN) ? 1 : 0) - A.cur) * SCENE_EASE;
+    // fade with the side view too — these only make sense on the cross-section
+    const vis = A.progress * curSide;
+    if(vis < 0.01){ A.el.style.opacity = 0; return; }
+    A.el.setAttribute('stroke-width', _mix(CH5_ARC_W_PAST, CH5_ARC_W_CUR, A.cur).toFixed(2));
+    A.el.setAttribute('stroke-dasharray', `${CH5_ARC_DASH} ${(CH5_ARC_DASH*A.cur).toFixed(2)}`);
+    const yA = ch5NodeY(A.from), yB = ch5NodeY(A.to);
+    const p0 = projectToScreen(_av.set(0, yA, A.z0));
+    const p2 = projectToScreen(_av.set(0, yB, A.z1));
+    const p1 = projectToScreen(_av.set(0, Math.max(yA,yB) + A.bow, (A.z0+A.z1)/2));
+    const { q1, q2 } = trimQuad(p0, p1, p2, Math.min(1, A.progress));
+    A.el.setAttribute('d', `M ${p0.x} ${p0.y} Q ${q1.x} ${q1.y} ${q2.x} ${q2.y}`);
+    A.el.style.opacity = vis;
+  });
+}
+
+// ---------- chapter 5 photo + caption ----------
+// Position comes entirely from JS: `top` from updateCh5's three phases, left/width mapped
+// onto the same grid the DOM uses (cols 1-3, + the 60px rail inset) since it's out of flow.
+const ch5PhotoEl = document.querySelector('.ch5-photo');
+function updateCh5Photo(){
+  if(!ch5PhotoEl) return;
+  // left/width are set unconditionally so offsetHeight (-> ch5PhotoH) is measured against
+  // the real laid-out width, not the shrink-wrapped default
+  const cw = Math.min(window.innerWidth, MAXW), cl = (window.innerWidth-cw)/2;
+  ch5PhotoEl.style.left  = (cl + (_M/_GRID_W)*cw + CH5_PHOTO_INSET) + 'px';
+  ch5PhotoEl.style.width = ((((CH5_PHOTO_COLS*_COLW + (CH5_PHOTO_COLS-1)*_G)/_GRID_W)*cw) - CH5_PHOTO_INSET) + 'px';
+  if(!ch5.entering){ ch5PhotoEl.style.opacity = 0; return; }
+  ch5PhotoEl.style.top   = ch5.photoY + 'px';
+  ch5PhotoEl.style.opacity = 1;
+}
+
+// ---------- chapter 5 context card (one per beat) ----------
+// one element, reused by every pinned chapter — the variant class comes from the owner
+const ch5CardEl = document.createElement('div');
+ch5CardEl.className = 'callout';
+document.body.appendChild(ch5CardEl);
+function updateCh5Card(){
+  const OWN = pinOwner >= 0 ? PIN[pinOwner] : null;
+  const B   = OWN ? OWN.beats[OWN.beat] : null;
+  if(!B || !B.card){ ch5CardEl.style.opacity = 0; return; }
+  const p   = OWN.beatP;
+  const IN  = OWN.cardIn;                        // ch6 delays its cards; ch5 uses the default
+  const MID = (IN + CH5_CARD_OUT) / 2;           // drift pivot — follows the window
+  const op = Math.max(0, Math.min((p-IN)/CH5_CARD_RAMP,
+                                  (CH5_CARD_OUT-p)/CH5_CARD_RAMP, 1));   // in, hold, out
+  if(op < 0.01){ ch5CardEl.style.opacity = 0; return; }
+  ch5CardEl.innerHTML = B.card;
+  // ch5 = solid purple + outlined, ch6 = frosted. Guarded: assigning className forces a recalc.
+  const cls = 'callout' + (OWN.cardVariant ? ' ' + OWN.cardVariant : '');
+  if(ch5CardEl.className !== cls) ch5CardEl.className = cls;
+  const cw = Math.min(window.innerWidth, MAXW), CC = OWN.cardCols;
+  ch5CardEl.style.width = (((CC*_COLW + (CC-1)*_G)/_GRID_W) * cw) + 'px';
+  ch5CardEl.style.left = (regionX + regionW/2) + 'px';
+  ch5CardEl.style.top  = (window.innerHeight*0.5) + 'px';
+  // drifts up as it comes and goes — same gesture as the chapters 1-4 callouts
+  const drift = (MID - p) * CH5_CARD_DRIFT;
+  ch5CardEl.style.transform = `translate(-50%, calc(-50% + ${drift}px))`;
+  ch5CardEl.style.opacity = op;
+}
+
+function updateNarrativeUI(si){
+  // hero copy / chapter-1 copy fade with the background crossfade (eased)
+  if(heroCopyEl) heroCopyEl.style.opacity = 1 - lightFactor;
+  if(chapCopyEl) chapCopyEl.style.opacity = lightFactor;
+  // The rail can't ride lightFactor any more — chapter 5 is purple and the rail still
+  // has to be there. It's visible for every chapter and only hidden in the hero.
+  railF += (((si>=1)?1:0) - railF) * SCENE_EASE;
+  if(railEl){
+    railEl.style.opacity = railF;
+    // recolor so it reads on white AND on purple:   purple world      <->  white world
+    railEl.style.setProperty('--rail-dot',    rgbaMix(0xffffff,0.45, 0x654CFF,0.50, lightFactor));
+    railEl.style.setProperty('--rail-active', rgbaMix(0xffffff,1.00, 0x654CFF,1.00, lightFactor));
+    railEl.style.setProperty('--rail-num',    rgbaMix(0x654CFF,1.00, 0xffffff,1.00, lightFactor));
+    railEl.style.setProperty('--rail-line',   rgbaMix(0xffffff,0.18, 0x654CFF,0.10, lightFactor));
+  }
+  const a = si - 1;   // 0-based active chapter (-1 in the hero)
+  railItems.forEach((it,i)=>it.classList.toggle('is-active', i===a));
+  // Chapter 1 entry: nudge the rail DOWN so the "1" tracks the rising headline,
+  // converging to 0 exactly when it pins. Self-correcting from measured positions,
+  // clamped to never go up — so it settles at center and stays fixed afterward.
+  let offTarget = 0;
+  if(si <= 1 && chapterEls[0]){
+    const head = chapterEls[0].querySelector('.ch-head');
+    const dot0 = railItems[0];
+    if(head && dot0){
+      const h = head.getBoundingClientRect(), d = dot0.getBoundingClientRect();
+      const delta = (h.top + h.height/2) - (d.top + d.height/2);   // headline center − dot center
+      offTarget = Math.max(0, railOffset + delta);                 // only downward
+    }
+  }
+  railOffset = offTarget;
+  const railBase = -0.125 * window.innerHeight;   // raise the resting/pin position by 25% (12.5vh)
+  railInner.style.transform = `translateY(${railBase + railOffset}px)`;
+  // nav text color follows the background crossfade (white on purple -> black on white)
+  const nc = lerpHex(0xffffff, 0x000000, lightFactor);
+  const ncss = `rgb(${(nc>>16)&255},${(nc>>8)&255},${nc&255})`;
+  navEl.style.setProperty('--nav-fg', ncss);
+  // Scroll tracker. Follows the bg crossfade: white on purple -> #A294FF on white. The alpha
+  // lerps too — white needs holding back on the purple, but A294FF is already a soft tint on
+  // white and reads better solid. `_docH` is cached (refreshed on resize) — scrollHeight
+  // forces a reflow, and this runs every frame.
+  scrollTrackEl.style.background = rgbaMix(0xffffff, 0.10, 0xA294FF, 0.22, lightFactor);
+  scrollFillEl.style.background  = rgbaMix(0xffffff, 0.50, 0xA294FF, 1.00, lightFactor);
+  scrollFillEl.style.transform = `scaleX(${Math.max(0, Math.min(1, window.scrollY/_docH))})`;
+  // solid bar matching the page background so scrolling content doesn't show through
+  const bg = P().bg;
+  navEl.style.background = `rgb(${(bg>>16)&255},${(bg>>8)&255},${bg&255})`;
+}
+
+// ============================================================
+//  RENDER LOOP
+// ============================================================
+// Generic view tween: any change of view keyframe runs over CH5_VIEW_DUR on EASE_MOVE, from
+// wherever the camera currently IS (so an interrupted move continues rather than snapping back).
+let viewT = 1, viewToKey = 'Expanded', viewFromSt = null;
+let _lastFrameT = performance.now();
+function frame(){
+  // real elapsed time for duration-based tweens; clamped so a backgrounded tab doesn't
+  // return and jump the morph straight to its end
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - _lastFrameT)/1000);
+  _lastFrameT = now;
+
+  // --- narrative: ease toward the ACTIVE scene (triggered on chapter change) ---
+  const si = activeSceneIndex();
+  updatePinned();
+
+  // While a pinned chapter's top is still on screen the visible model is the OUTGOING instance,
+  // so the scene is held back to whatever OWNS it — otherwise it'd start morphing into the next
+  // chapter's look while you can still see it. Chapters 1-4 have no owner (clamped to 4).
+  const OWN   = pinOwner >= 0 ? PIN[pinOwner] : null;
+  const effSi = OWN ? OWN.sceneIdx : Math.min(si, 4);
+  const SC    = SCENES[effSi];
+  const BEAT  = OWN ? OWN.beats[OWN.beat] : null;
+
+  // Instance swap: fires at each pinned chapter's top edge, where the outgoing model is off the
+  // top and the incoming one is off the bottom. Nothing is on screen, so snap (don't ease).
+  PIN.forEach((c,i)=>{
+    if(c.entering === c._was) return;
+    c._was = c.entering;
+    if(c.entering){ snapLook(c.sceneIdx, 0); return; }        // arriving -> its FIRST beat
+    const prev = PIN[i-1];                                     // scrolled back up out of it
+    if(prev) snapLook(prev.sceneIdx, prev.beats.length-1);     // -> the one above, at its LAST beat
+    else     snapLook(4, 0);                                   // -> chapters 1-4
+  });
+
+  // Model view. Chapters 1-4 sit in Expanded; a pinned chapter takes it from its BEAT. Any
+  // change is a real timed tween (CH5_VIEW_DUR on EASE_MOVE) rather than easeStateTo — that's
+  // an exponential ease with no ease-IN at all (~11% on the first frame), which reads as a lurch.
+  // ownedViewKey applies ch5's photoIn gate — and snapLook goes through the same helper, so the
+  // handoff can't land on a view this then immediately tweens away from.
+  const viewKey = (OWN ? ownedViewKey(OWN, OWN.beat) : null) || SC.view || 'Expanded';
+  if(viewOverride){
+    easeStateTo(curSt, STATE_BY_KEY[viewOverride], 0.16);
+    viewToKey = viewOverride; viewT = 1; viewFromSt = null;
+  } else {
+    if(viewKey !== viewToKey){
+      viewFromSt = { ...curSt };      // tween from where we ARE, not from the last keyframe
+      viewToKey  = viewKey;
+      viewT = 0;
+    }
+    if(viewT < 1 && viewFromSt){
+      viewT = Math.min(1, viewT + dt/CH5_VIEW_DUR);
+      Object.assign(curSt, lerpStates(viewFromSt, STATE_BY_KEY[viewToKey], EASE_MOVE(viewT)));
+    } else {
+      // settled — keep tracking it: Side's radius is solved at runtime and moves on resize
+      easeStateTo(curSt, STATE_BY_KEY[viewToKey], 0.22);
+    }
+  }
+  const st = curSt;
+
+  // layout region (regionDY is set by updatePinned).
+  // In a pinned chapter the layout comes from the BEAT, not the scene — ch5 opens out mid-chapter.
+  let layoutKey = BEAT ? BEAT.layout : SC.layout;
+  // ...but never open out while ch5's photo is still on screen — it sits in the left channel
+  // that full bleed takes over. Hold editorial until it has actually cleared the viewport.
+  if(OWN === ch5 && layoutKey === 'ch5full' && !ch5.photoGone) layoutKey = 'ch5edit';
+  const tgtLayout = layoutOverride ? LAYOUTS[layoutOverride] : LAYOUTS[layoutKey];
+  easeLayoutTo(tgtLayout, SCENE_EASE);
+  applyLayoutRegion();
+
+  // Background + model palette crossfade. Follows the REAL scene (si), not effSi, and
+  // always eases: chapter 5's purple arrives as a global white->purple fade the moment
+  // the chapter triggers — the same crossfade as hero -> chapter 1, in reverse.
+  const tgtLight = (lightOverride!=null) ? lightOverride : SCENES[si].light;
+  lightFactor += (tgtLight - lightFactor)*SCENE_EASE;
+  const tgtOutline = (outlineOverride!=null) ? outlineOverride : (SC.outline||0);
+  outlineF += (tgtOutline - outlineF)*SCENE_EASE;
+  // label colours ride the REAL scene (si) like lightFactor, so they cross with the background
+  const tgtK = SCENES[si].labelK || [1,1,1];
+  for(let i=0;i<labelK.length;i++) labelK[i] += (tgtK[i] - labelK[i])*SCENE_EASE;
+  // label POSITIONS ride effSi instead — they have to move with the layers, and the layer
+  // arrangement keys off effSi. A live drag owns them outright.
+  curSceneKey = SC.key;
+  if(!_labelDragging){
+    const tgtOff = LABEL_OFF[SC.key];
+    if(tgtOff) for(const n in labelOffsets){
+      const t = tgtOff[n];
+      if(!t) continue;
+      labelOffsets[n].x += (t.x - labelOffsets[n].x)*SCENE_EASE;
+      labelOffsets[n].y += (t.y - labelOffsets[n].y)*SCENE_EASE;
+    }
+  }
+
+  // Per-layer arrangement (position / size / fill). A real ARRANGE_DUR tween on EASE_MOVE,
+  // re-seeded from wherever the layers ARE when the scene flips — so an interrupted move
+  // continues from its current spot instead of snapping back to the last scene's values.
+  if(_arrangeSi !== effSi){
+    _arrangeSi = effSi;
+    _arrangeT  = 0;
+    layerObjs.forEach(o=>{
+      const L = SC.layers[o.def.name];
+      if(!o.curPos){ o.curPos=[L.pos[0], L.pos[1]]; o.curSize=L.size; o.curOut=L.out ?? 0; }
+      o.fromPos = [o.curPos[0], o.curPos[1]];
+      o.fromSize = o.curSize;
+      o.fromOut  = o.curOut;
+    });
+  }
+  _arrangeT = Math.min(1, _arrangeT + dt/ARRANGE_DUR);
+  const ae = EASE_MOVE(_arrangeT);
+  layerObjs.forEach(o=>{
+    const L = SC.layers[o.def.name];
+    o.curPos[0] = _mix(o.fromPos[0], L.pos[0],   ae);
+    o.curPos[1] = _mix(o.fromPos[1], L.pos[1],   ae);
+    o.curSize   = _mix(o.fromSize,   L.size,     ae);
+    o.curOut    = _mix(o.fromOut,    L.out ?? 0, ae);   // per-layer outline<->filled
+    // chapter 5 beats: is this layer lit? (1 everywhere else, so it's inert outside ch5)
+    const onT = BEAT ? (BEAT.on.includes(o.def.name) ? 1 : 0) : 1;
+    if(o.curOn == null) o.curOn = 1;
+    o.curOn += (onT - o.curOn)*SCENE_EASE;
+  });
+  const patT = BEAT ? (BEAT.on.includes('Patients') ? 1 : 0) : 1;
+  modelPatOn += (patT - modelPatOn)*SCENE_EASE;
+  // chapter 6 lights the sub-layers cumulatively. No `subs` on the beat -> all lit, so this is
+  // inert for chapters 1-5.
+  SUBS.forEach((S,si)=>{
+    const t = (BEAT && BEAT.subs) ? (BEAT.subs.includes(S.name) ? 1 : 0) : 1;
+    subOn[si] += (t - subOn[si])*SCENE_EASE;
+  });
+  // model labels — ch6 drops them for the tilted view. The ease starts at the handoff, where the
+  // instance is still below the fold, so they're gone before the rising model is really visible.
+  labelsOn += (((OWN && OWN.labels === false) ? 0 : 1) - labelsOn)*SCENE_EASE;
+
+  curSide = st.side;
+  rippleView = st.ripple;
+  applyPaletteColors();      // recolor continuously for the dark<->light crossfade
+  updateLayout(st);
+  updateHighlight();
+  updateRipples(performance.now()/1000);
+  updateArcs(st);
+  updateCamera(st);
+  updateLabels(st);
+  updateHandles(st);
+  updateCallouts();
+  updateRoses(effSi);
+  updateLinks(si);
+  updateCh5Arcs();
+  updateCh5Card();
+  updateCh5Photo();
+  updateNarrativeUI(si);
+  updatePips(viewOverride ? STATE_BY_KEY[viewOverride]._i : STATE_BY_KEY[viewKey]._i);
+  renderer.render(scene,camera);
+  requestAnimationFrame(frame);
+}
+
+// ============================================================
+//  INPUT
+// ============================================================
+const navEl = document.querySelector('.nav');
+const scrollTrackEl = document.getElementById('scrolltrack');
+const scrollFillEl  = document.getElementById('scrolltrack-fill');
+let _docH = 1;   // scrollable distance; cached because scrollHeight forces a reflow
+let lastScrollY = 0;
+function onScroll(){
+  // scrolling resumes the narrative: drop any dev-panel overrides
+  viewOverride=null; layoutOverride=null; lightOverride=null; outlineOverride=null;
+  // hide the nav when scrolling down, reveal it when scrolling up (always shown near top)
+  const y = window.scrollY;
+  if(y < 60 || y < lastScrollY - 2) navEl.classList.remove('hidden');
+  else if(y > lastScrollY + 2)      navEl.classList.add('hidden');
+  // the tracker stands in for the nav: it's only there while the nav isn't
+  scrollTrackEl.classList.toggle('on', navEl.classList.contains('hidden'));
+  lastScrollY = y;
+}
+window.addEventListener('scroll', onScroll, {passive:true});
+
+// dev-panel: temporarily force a model view (cleared on next scroll)
+function setView(i){
+  userTheta = 0; userPhi = 0;
+  viewOverride = STATES[i].key;
+}
+
+// drag to orbit (adds to state camera)
+let dragging=false, lastX=0, lastY=0;
+renderer.domElement.style.touchAction='none';
+function down(e){ dragging=true; lastX=e.clientX; lastY=e.clientY; }
+function move(e){
+  if(!dragging) return;
+  userTheta += (e.clientX-lastX)*0.006;
+  userPhi   -= (e.clientY-lastY)*0.006;
+  userPhi = Math.max(-1.2, Math.min(1.2, userPhi));
+  lastX=e.clientX; lastY=e.clientY;
+}
+function up(){ dragging=false; }
+stage.addEventListener('pointerdown', e=>{ if(e.target===renderer.domElement){ e.preventDefault(); down(e);} });
+window.addEventListener('pointermove', move);
+window.addEventListener('pointerup', up);
+// let canvas receive pointer events (it's behind scroll-driver which is pointer-events:none)
+renderer.domElement.style.pointerEvents='auto';
+
+function resize(){
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  applyLayoutRegion();   // sets camera aspect + viewport for the current layout
+  refreshSideRadius();   // keeps the side view's base bar at CH5_BAR_COLS columns
+  _ch5PhotoH = 0;        // caption reflows at a new width -> re-measure
+  // ch5 is sized in vh, so the document grows/shrinks with the window
+  _docH = Math.max(1, document.body.scrollHeight - window.innerHeight);
+}
+window.addEventListener('resize', resize);
+
+// ============================================================
+//  UI WIRING
+// ============================================================
+// layout buttons
+const layoutsRow=document.getElementById('layouts');
+[['immersive','Immersive'],['hero','Hero'],['editorial','Editorial']].forEach(([k,label])=>{
+  const b=document.createElement('button'); b.className='btn'; b.textContent=label;
+  b.onclick=()=>{
+    layoutOverride=k;   // temporary; cleared on next scroll
+    [...layoutsRow.children].forEach(x=>x.classList.toggle('on', x===b));
+  };
+  layoutsRow.appendChild(b);
+});
+
+// view buttons (dev override)
+const viewsRow=document.getElementById('views');
+STATES.forEach((s,i)=>{
+  const b=document.createElement('button'); b.className='btn'; b.textContent=s.key;
+  b.onclick=()=>setView(i);
+  viewsRow.appendChild(b);
+});
+
+// mode (dev override — cleared on next scroll)
+document.getElementById('mode-toggle').onclick=()=>{
+  lightOverride = (lightFactor>0.5) ? 0 : 1;
+};
+const outlineBtn=document.getElementById('outline-toggle');
+outlineBtn.onclick=()=>{
+  outlineOverride = (outlineF>0.5) ? 0 : 1;
+  outlineBtn.classList.toggle('on', outlineOverride===1);
+};
+
+// layer highlight
+const layerHl=document.getElementById('layer-hl');
+LAYERS.forEach((L,i)=>{
+  const b=document.createElement('button'); b.className='btn'; b.textContent=L.name.slice(0,4);
+  b.title=L.name;
+  b.onclick=()=>{ hlLayer = (hlLayer===i)?-1:i; refreshToggles(); };
+  layerHl.appendChild(b);
+});
+
+// sub highlight
+const subHl=document.getElementById('sub-hl');
+SUBS.forEach((S,i)=>{
+  const b=document.createElement('button'); b.className='btn'; b.textContent=S.name;
+  b.onclick=()=>{ if(hlSubs.has(i)) hlSubs.delete(i); else hlSubs.add(i); refreshToggles(); };
+  subHl.appendChild(b);
+});
+
+// arcs
+document.getElementById('arcs-toggle').onclick=function(){
+  arcsManual = (arcsManual===true)?false:true;
+  refreshToggles();
+};
+
+// per-layer size sliders — dev scratch (used when Layer handles are on); value = size
+const sizesWrap=document.getElementById('layer-sizes');
+const sizeControls=[];
+layerObjs.forEach((o)=>{
+  o.def.sizeMul = ARRANGE.hero[o.def.name].size;   // scratch starts at the hero arrangement
+  const row=document.createElement('div'); row.className='qtyrow';
+  const lab=document.createElement('span'); lab.textContent=o.def.name.slice(0,4);
+  lab.style.width='34px'; lab.style.fontSize='10.5px'; lab.style.opacity='.7';
+  const rng=document.createElement('input'); rng.type='range';
+  rng.min='0.3'; rng.max='2.5'; rng.step='0.01'; rng.value=String(o.def.sizeMul);
+  const val=document.createElement('span'); val.className='val'; val.textContent=o.def.sizeMul.toFixed(2);
+  rng.oninput=()=>{ o.def.sizeMul=+rng.value; val.textContent=o.def.sizeMul.toFixed(2); };
+  row.appendChild(lab); row.appendChild(rng); row.appendChild(val);
+  sizesWrap.appendChild(row);
+  sizeControls.push({o, rng, val});
+});
+function refreshSizeControls(){ sizeControls.forEach(c=>{ c.rng.value=String(c.o.def.sizeMul); c.val.textContent=c.o.def.sizeMul.toFixed(2); }); }
+
+// layer-position handles (expanded view)
+const handlesBtn=document.getElementById('handles-toggle');
+handlesBtn.onclick=()=>{
+  handlesOn=!handlesOn;
+  handlesBtn.classList.toggle('on', handlesOn);
+  if(handlesOn){
+    // seed the scratch from the current chapter's arrangement so tuning starts here
+    layerObjs.forEach(o=>{
+      if(o.curPos){ o.def.expanded[0]=o.curPos[0]; o.def.expanded[2]=o.curPos[1]; o.def.sizeMul=o.curSize; }
+    });
+    refreshSizeControls();
+    setView(1);   // force the Expanded view where handles live
+  }
+};
+const labelBtn=document.getElementById('label-handles-toggle');
+labelBtn.onclick=()=>{
+  labelEditOn=!labelEditOn;
+  labelBtn.classList.toggle('on', labelEditOn);
+  allLabelEls.forEach(el=>el.classList.toggle('editable', labelEditOn));
+};
+
+// ripple pacing + easing
+const rr=document.getElementById('ripple-range'), rv=document.getElementById('ripple-val');
+function setRippleSpeed(v){ rippleSpeed = (v/100)*0.55; rv.textContent=v; }
+rr.oninput=()=>setRippleSpeed(+rr.value);
+setRippleSpeed(+rr.value);
+document.getElementById('ripple-ease').onchange=(e)=>{ rippleEase=e.target.value; };
+const rcnt=document.getElementById('ripple-count'), rcntv=document.getElementById('ripple-count-val');
+rcnt.oninput=()=>{ rippleCount=+rcnt.value; rcntv.textContent=rcnt.value; };
+
+// quantity
+const qr=document.getElementById('qty-range'), qv=document.getElementById('qty-val');
+qr.oninput=()=>{ qtyCount=+qr.value; qv.textContent=qr.value; updateQuantity(); };
+document.getElementById('qty-cap').oninput=()=>{};
+// tie quantity to the highlighted layer (default 0)
+function refreshToggles(){
+  [...layerHl.children].forEach((b,i)=>b.classList.toggle('on', hlLayer===i));
+  [...subHl.children].forEach((b,i)=>b.classList.toggle('on', hlSubs.has(i)));
+  const at=document.getElementById('arcs-toggle');
+  at.classList.toggle('on', arcsManual===true);
+  at.textContent = arcsManual===null ? 'Auto (side)' : (arcsManual?'Shown':'Hidden');
+  qtyLayer = hlLayer===-1?0:hlLayer;
+  updateQuantity();
+}
+
+// ---------- panel: collapse + drag ----------
+const panel=document.getElementById('panel');
+const panelHead=document.getElementById('panel-head');
+const collapseBtn=document.getElementById('panel-collapse');
+collapseBtn.onclick=()=>{
+  const c=panel.classList.toggle('collapsed');
+  collapseBtn.innerHTML = c ? '&plus;' : '&minus;';
+  collapseBtn.title = c ? 'Expand' : 'Collapse';
+};
+let pDrag=false, pStartX=0, pStartY=0, pStartL=0, pStartT=0;
+panelHead.addEventListener('pointerdown', e=>{
+  if(e.target.closest('#panel-collapse')) return;   // let the button click through
+  pDrag=true; panel.classList.add('dragging');
+  const r=panel.getBoundingClientRect();
+  pStartL=r.left; pStartT=r.top; pStartX=e.clientX; pStartY=e.clientY;
+  panel.style.right='auto';
+  panelHead.setPointerCapture(e.pointerId);
+});
+panelHead.addEventListener('pointermove', e=>{
+  if(!pDrag) return;
+  let nl=pStartL + (e.clientX-pStartX);
+  let nt=pStartT + (e.clientY-pStartY);
+  nl=Math.max(4, Math.min(window.innerWidth - panel.offsetWidth - 4, nl));
+  nt=Math.max(4, Math.min(window.innerHeight - panelHead.offsetHeight - 4, nt));
+  panel.style.left=nl+'px'; panel.style.top=nt+'px';
+});
+function endPanelDrag(e){ if(pDrag){ pDrag=false; panel.classList.remove('dragging'); try{panelHead.releasePointerCapture(e.pointerId);}catch(_){} } }
+panelHead.addEventListener('pointerup', endPanelDrag);
+panelHead.addEventListener('pointercancel', endPanelDrag);
+
+// ---------- chapter 5 photo: show a placeholder until the asset is dropped in ----------
+(function(){
+  const img = document.querySelector('.ch5-photo img');
+  if(!img) return;
+  const miss = () => img.closest('.shot').classList.add('missing');
+  img.addEventListener('error', miss);
+  if(img.complete && img.naturalWidth === 0) miss();
+})();
+
+// ---------- dev UI ----------
+// Build tools, not part of the piece. Hidden rather than deleted: their wiring (view/layout/
+// light overrides, setView) threads through the render loop, so a flag is the cheap way back.
+const DEV_UI   = false;   // control panel ("Parker Model") — flip to true to tune labels/layers
+const DEV_PIPS = false;   // the 4 view dots — retired
+if(!DEV_UI)   panel.style.display = 'none';
+if(!DEV_PIPS) pipWrap.style.display = 'none';
+
+// Screen recording — set true to hide the pointer page-wide (see .hide-cursor in the CSS).
+const HIDE_CURSOR = false;
+if(HIDE_CURSOR) document.documentElement.classList.add('hide-cursor');
+
+// ---------- boot ----------
+applyPaletteColors();
+resize();
+onScroll();
+refreshToggles();
+updateQuantity();
+frame();
+</script>
+</body>
+</html>

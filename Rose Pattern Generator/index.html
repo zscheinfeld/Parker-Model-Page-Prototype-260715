@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rose Pattern Generator</title>
+<style>
+  :root {
+    --bg: #16171a;
+    --panel: #1e2024;
+    --sunk: #1a1c20;
+    --line: #2e3238;
+    --text: #e8e9eb;
+    --dim: #8b9099;
+    --accent: #d98a7b;
+    --accent2: #7ba7d9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font: 13px/1.5 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; height: 100vh; }
+
+  /* ---------- panel ---------- */
+  .panel {
+    width: 296px;
+    flex: none;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    padding: 18px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .panel::-webkit-scrollbar { width: 9px; }
+  .panel::-webkit-scrollbar-thumb { background: #33383f; border-radius: 5px; border: 3px solid var(--panel); }
+  .title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 4px; }
+  .title span { display: block; font-size: 11px; font-weight: 400; color: var(--dim); margin-top: 3px; }
+
+  /* ---------- collapsible buckets ---------- */
+  .bucket { border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); }
+  .bucket > summary {
+    cursor: pointer;
+    padding: 11px 12px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+  .bucket > summary::-webkit-details-marker { display: none; }
+  .bucket > summary:hover { color: #fff; }
+  .chev {
+    width: 8px; height: 8px;
+    border-right: 1.5px solid var(--dim);
+    border-bottom: 1.5px solid var(--dim);
+    transform: rotate(-45deg);
+    transition: transform .18s ease;
+    margin-left: auto;
+  }
+  .bucket[open] > summary .chev { transform: rotate(45deg); }
+  .dot-mark { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+  .dot-mark.anim { background: var(--accent2); }
+  .bucket-body {
+    padding: 2px 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    border-top: 1px solid var(--line);
+    margin-top: 2px;
+    padding-top: 14px;
+  }
+
+  .group { display: flex; flex-direction: column; gap: 13px; }
+  .group > h2 {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--dim);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .ctrl { display: flex; flex-direction: column; gap: 6px; }
+  .ctrl label { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .ctrl .name { color: var(--text); }
+  .val {
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    color: var(--dim);
+    background: #26292e;
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+  .hint { font-size: 11px; line-height: 1.45; color: var(--dim); }
+  .hint em { font-style: normal; color: #b6bcc5; }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 3px;
+    border-radius: 2px;
+    background: #3a3f46;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    background: var(--text);
+    border: none;
+    cursor: grab;
+    transition: transform .1s;
+  }
+  input[type=range]::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.15); }
+  .anim-scope input[type=range]::-webkit-slider-thumb { background: #cfe0f2; }
+
+  select, input[type=text] {
+    width: 100%;
+    background: #26292e;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 6px 8px;
+    font: inherit;
+    cursor: pointer;
+  }
+  input[type=text] {
+    cursor: text;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent2); }
+  input[type=text].bad { border-color: #c9635b; }
+  .check { flex-direction: row; align-items: center; gap: 8px; cursor: pointer; }
+  .check input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+
+  button {
+    font: inherit;
+    font-weight: 500;
+    border: 1px solid var(--line);
+    background: #26292e;
+    color: var(--text);
+    border-radius: 6px;
+    padding: 9px 10px;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+  }
+  button:hover { background: #30343a; border-color: #454b53; }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #23150f; font-weight: 600; }
+  button.primary.play { background: var(--accent2); border-color: var(--accent2); color: #0d1723; }
+  button.primary:hover { filter: brightness(1.08); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  /* ---------- stage ---------- */
+  .stage {
+    flex: 1;
+    display: grid;
+    place-items: center;
+    padding: 28px;
+    background:
+      linear-gradient(45deg, #1a1c1f 25%, transparent 25%, transparent 75%, #1a1c1f 75%),
+      linear-gradient(45deg, #1a1c1f 25%, #131417 25%, #131417 75%, #1a1c1f 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 10px 10px;
+    position: relative;
+    min-width: 0;
+  }
+  .sheet {
+    background: #fff;
+    border-radius: 3px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+    aspect-ratio: 1;
+    width: min(100%, calc(100vh - 56px));
+  }
+  .sheet svg { display: block; width: 100%; height: 100%; }
+  .readout {
+    position: absolute;
+    bottom: 14px; left: 16px;
+    font-size: 11px;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <div class="title">Rose Pattern Generator<span>Concentric dot fields</span></div>
+
+    <!-- ============ DESIGN ============ -->
+    <details class="bucket" id="b-design" open>
+      <summary><span class="dot-mark"></span>Design settings<span class="chev"></span></summary>
+      <div class="bucket-body">
+
+        <div class="group">
+          <h2>Form</h2>
+          <div class="ctrl">
+            <label><span class="name">Total dots</span><span class="val" id="v-dots">144</span></label>
+            <input type="range" id="dots" min="12" max="900" step="1" value="144">
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Radius</span><span class="val" id="v-radius">270</span></label>
+            <input type="range" id="radius" min="40" max="400" step="1" value="270">
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Dot size</span><span class="val" id="v-size">2.5</span></label>
+            <input type="range" id="size" min="0.4" max="12" step="0.1" value="2.5">
+          </div>
+          <div class="ctrl check">
+            <input type="checkbox" id="square">
+            <label for="square" style="cursor:pointer"><span class="name">Square dots</span></label>
+          </div>
+          <span class="hint">Same radius as the circles (side = 2×). Always axis-aligned —
+            they never rotate, however far the form turns.</span>
+        </div>
+
+        <div class="group">
+          <h2>Rotation</h2>
+          <div class="ctrl">
+            <label><span class="name">Rotation</span><span class="val" id="v-rot">0°</span></label>
+            <input type="range" id="rot" min="0" max="360" step="1" value="0">
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Ring twist</span><span class="val" id="v-twist">0°</span></label>
+            <input type="range" id="twist" min="-45" max="45" step="0.5" value="0">
+            <span class="hint">Rotation added per ring — swirls the form.</span>
+          </div>
+        </div>
+
+        <div class="group">
+          <h2>Organic</h2>
+          <div class="ctrl">
+            <label><span class="name">Scatter</span><span class="val" id="v-scatter">0%</span></label>
+            <input type="range" id="scatter" min="0" max="100" step="1" value="0">
+          </div>
+          <div class="ctrl check">
+            <input type="checkbox" id="mirror" checked>
+            <label for="mirror" style="cursor:pointer"><span class="name">Mirror scatter across symmetry</span></label>
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Ring variation</span><span class="val" id="v-var">70%</span></label>
+            <input type="range" id="var" min="0" max="100" step="1" value="70">
+            <span class="hint">How unevenly dots spread between rings.</span>
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Center density</span><span class="val" id="v-fall">55%</span></label>
+            <input type="range" id="fall" min="0" max="100" step="1" value="55">
+            <span class="hint">Pulls dots inward for a denser core.</span>
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Symmetry</span></label>
+            <select id="sym">
+              <option value="1">1 — none</option>
+              <option value="2">2 — mirror</option>
+              <option value="3">3 — triad</option>
+              <option value="4" selected>4 — quad</option>
+              <option value="5">5 — pentad</option>
+              <option value="6">6 — hex</option>
+              <option value="8">8 — octad</option>
+              <option value="10">10</option>
+              <option value="12">12</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="group">
+          <button class="primary" id="shuffle">Shuffle &nbsp;<span style="opacity:.55">Space</span></button>
+          <div class="row">
+            <button id="copy-design">Copy design</button>
+            <button id="paste-design">Paste design</button>
+          </div>
+          <button id="reset">Reset to reference</button>
+        </div>
+      </div>
+    </details>
+
+    <!-- ============ ANIMATION ============ -->
+    <details class="bucket anim-scope" id="b-anim">
+      <summary><span class="dot-mark anim"></span>Animation settings<span class="chev"></span></summary>
+      <div class="bucket-body">
+
+        <button class="primary play" id="play">Play &nbsp;<span style="opacity:.55">Enter</span></button>
+        <span class="hint">Interpolates from the initial state below to the design above.
+          Dots bloom in by <em>symmetry orbit</em>, so the form stays balanced at every frame.</span>
+
+        <div class="group">
+          <h2>Timing</h2>
+          <div class="ctrl">
+            <label><span class="name">Easing</span></label>
+            <select id="ease">
+              <option value="linear">Linear</option>
+              <option value="ease">Ease</option>
+              <option value="ease-in">Ease in</option>
+              <option value="ease-out">Ease out</option>
+              <option value="ease-in-out">Ease in-out</option>
+              <option value="expo-out" selected>Expo out</option>
+              <option value="expo-in-out">Expo in-out</option>
+              <option value="back-out">Back out (overshoot)</option>
+              <option value="spring">Spring</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Cubic bézier</span></label>
+            <input type="text" id="bezier" value="0.16, 1, 0.3, 1" spellcheck="false">
+            <span class="hint">Four numbers, as CSS. Editing switches Easing to Custom.
+              X stays in 0–1; Y may overshoot for bounce.</span>
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Duration</span><span class="val" id="v-dur">2200ms</span></label>
+            <input type="range" id="dur" min="200" max="8000" step="50" value="2200">
+          </div>
+        </div>
+
+        <div class="group">
+          <h2>Initial state</h2>
+          <div class="ctrl">
+            <label><span class="name">Initial radius</span><span class="val" id="v-iRadius">30</span></label>
+            <input type="range" id="iRadius" min="0" max="400" step="1" value="30">
+            <span class="hint">How close in the rings start.</span>
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Initial ring twist</span><span class="val" id="v-iTwist">40°</span></label>
+            <input type="range" id="iTwist" min="-90" max="90" step="0.5" value="40">
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Initial rotation</span><span class="val" id="v-iRot">-50°</span></label>
+            <input type="range" id="iRot" min="-360" max="360" step="1" value="-50">
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Initial opacity</span><span class="val" id="v-iOpacity">0%</span></label>
+            <input type="range" id="iOpacity" min="0" max="100" step="1" value="0">
+          </div>
+          <div class="ctrl">
+            <label><span class="name">Initial total dots</span><span class="val" id="v-iDots">0</span></label>
+            <input type="range" id="iDots" min="0" max="900" step="1" value="0">
+            <span class="hint">Clamped to the design's dot count — the rest bloom in.</span>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="row">
+            <button id="copy-anim">Copy animation</button>
+            <button id="paste-anim">Paste animation</button>
+          </div>
+          <button id="reset-anim">Reset animation</button>
+        </div>
+      </div>
+    </details>
+
+    <!-- ============ EXPORT ============ -->
+    <details class="bucket" id="b-export">
+      <summary><span class="dot-mark" style="background:#6f7681"></span>Export<span class="chev"></span></summary>
+      <div class="bucket-body">
+        <div class="group">
+          <div class="row">
+            <button id="save-svg">Save SVG</button>
+            <button id="save-png">Save PNG</button>
+          </div>
+          <button id="copy">Copy SVG markup</button>
+          <span class="hint">Exports the frame currently on screen.</span>
+        </div>
+      </div>
+    </details>
+  </aside>
+
+  <main class="stage">
+    <div class="sheet"><svg id="art" viewBox="0 0 833 833" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="readout" id="readout"></div>
+  </main>
+</div>
+
+<script>
+const BASE = 833;   // matches the reference artwork; canvas only grows if dots would clip
+
+// Deterministic PRNG so sliders never re-randomize — only Shuffle changes the seed.
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const round = (v) => Math.round(v * 1000) / 1000;
+
+const DESIGN_DEFAULTS = {
+  dots: 144, radius: 270, size: 2.5, rot: 0, twist: 0,
+  scatter: 0, var: 70, fall: 55, sym: 4, mirror: true, seed: 1,
+  shape: 'circle'   // 'circle' | 'square' — squares stay axis-aligned, never rotate
+};
+const ANIM_DEFAULTS = {
+  ease: 'expo-out', bezier: [0.16, 1, 0.3, 1], dur: 2200,
+  iRadius: 30, iTwist: 40, iRot: -50, iOpacity: 0, iDots: 0
+};
+let design = { ...DESIGN_DEFAULTS };
+let anim = { ...ANIM_DEFAULTS, bezier: [...ANIM_DEFAULTS.bezier] };
+
+/* ============================================================
+   Geometry
+   The skeleton (ring count, dot counts, offsets, jitter) must stay FIXED while
+   animating — otherwise every dot jumps to a new home mid-flight. Radius, rotation
+   and twist are pure transforms of that skeleton, so they interpolate cleanly.
+   ============================================================ */
+function buildSkeleton(p) {
+  const rng = mulberry32(p.seed);
+  const sym = p.sym;
+
+  let ringCount = Math.round(Math.sqrt(p.dots * 0.9));
+  ringCount = Math.max(2, Math.min(40, ringCount, Math.floor(p.dots / sym)));
+
+  const falloff = p.fall / 100;      // 0 = even density, 1 = equal count per ring
+  const variation = p.var / 100;
+
+  const rings = [];
+  for (let n = 1; n <= ringCount; n++) {
+    // A ring's isotropic capacity: the count at which arc spacing equals ring spacing.
+    // In the reference no ring exceeds ~1.3x this — rings are *thinned* from a packing
+    // limit, never crammed past it. That ceiling is what stops a dense core from fusing
+    // into a solid disc; the random thinning is what makes the field read as organic.
+    const ideal = 2 * Math.PI * n;
+    const bias = Math.pow(n, -2 * falloff);           // pulls density toward the core
+    const wobble = Math.pow(3, (rng() * 2 - 1) * variation);
+    rings.push({
+      n,
+      w: Math.max(0.05, ideal * bias * wobble),
+      cap: Math.max(sym, Math.floor(ideal * 1.35)),
+      offset: rng(),
+      jitterSeed: (rng() * 1e9) | 0
+    });
+  }
+
+  const counts = fitCounts(rings, sym, p.dots);
+  return { rings, counts, sym, ringCount, total: counts.reduce((a, b) => a + b, 0) };
+}
+
+// Dot counts must be multiples of `sym`, so hit the requested total by searching the scale.
+// The packing cap is applied inside the search so it can compensate for capped rings.
+function fitCounts(rings, sym, target) {
+  const snap = (scale) => rings.map(rg => {
+    const ceil = Math.max(sym, Math.floor(rg.cap / sym) * sym);
+    return Math.min(ceil, Math.max(sym, Math.round((rg.w * scale) / sym) * sym));
+  });
+  const sum = (cs) => cs.reduce((a, b) => a + b, 0);
+
+  let lo = 0.0001, hi = 1000, best = snap(lo);
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const cs = snap(mid);
+    const s = sum(cs);
+    if (Math.abs(s - target) < Math.abs(sum(best) - target)) best = cs;
+    if (s === target) return cs;
+    if (s < target) lo = mid; else hi = mid;
+  }
+  return best;
+}
+
+/* Place the skeleton at a given radius/rotation/twist. Returns dots centered on the
+   origin, each tagged with its symmetry-orbit index for staged reveals. */
+function layoutDots(sk, o) {
+  const { rings, counts, sym } = sk;
+  const spacing = o.radius / rings.length;
+  const scatter = o.scatter / 100;
+  const globalRot = (o.rot * Math.PI) / 180;
+  const twist = (o.twist * Math.PI) / 180;
+
+  const out = [];
+  let orbitBase = 0;
+
+  rings.forEach((ring, i) => {
+    const count = counts[i];
+    const step = (Math.PI * 2) / count;
+    const ringR = ring.n * spacing;
+    const ringRot = ring.offset * step + globalRot + twist * ring.n;
+
+    // Jitter table length decides whether scatter respects symmetry.
+    // count/sym entries => every symmetry copy gets the same offsets => symmetry survives.
+    const wedge = Math.max(1, Math.round(count / sym));
+    const m = o.mirror ? wedge : count;
+    const jr = [], ja = [];
+    const jrng = mulberry32(ring.jitterSeed);
+    for (let k = 0; k < m; k++) { jr.push(jrng() - 0.5); ja.push(jrng() - 0.5); }
+
+    for (let j = 0; j < count; j++) {
+      const k = j % m;
+      const a = ringRot + j * step + ja[k] * step * scatter * 1.6;
+      const r = Math.max(0, ringR + jr[k] * spacing * scatter * 1.6);
+      out.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, orbit: orbitBase + (j % wedge) });
+    }
+    orbitBase += wedge;
+  });
+
+  return out;
+}
+
+/* ============================================================
+   Easing
+   ============================================================ */
+const EASINGS = {
+  'linear': [0, 0, 1, 1],
+  'ease': [0.25, 0.1, 0.25, 1],
+  'ease-in': [0.42, 0, 1, 1],
+  'ease-out': [0, 0, 0.58, 1],
+  'ease-in-out': [0.42, 0, 0.58, 1],
+  'expo-out': [0.16, 1, 0.3, 1],
+  'expo-in-out': [0.87, 0, 0.13, 1],
+  'back-out': [0.34, 1.56, 0.64, 1],
+  'spring': [0.17, 0.89, 0.32, 1.28]
+};
+
+// Bisection rather than Newton: control points like back-out/spring have near-zero
+// slope regions where Newton stalls, and 24 halvings is plenty at 60fps.
+function cubicBezier(x1, y1, x2, y2) {
+  const curve = (t, a, b) => {
+    const A = 1 - 3 * b + 3 * a, B = 3 * b - 6 * a, C = 3 * a;
+    return ((A * t + B) * t + C) * t;
+  };
+  return (x) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let lo = 0, hi = 1, t = x;
+    for (let i = 0; i < 24; i++) {
+      const cx = curve(t, x1, x2);
+      if (Math.abs(cx - x) < 1e-5) break;
+      if (cx < x) lo = t; else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return curve(t, y1, y2);
+  };
+}
+
+function parseBezier(str) {
+  const n = String(str).split(',').map(s => parseFloat(s.trim()));
+  if (n.length !== 4 || n.some(v => !Number.isFinite(v))) return null;
+  return [clamp(n[0], 0, 1), n[1], clamp(n[2], 0, 1), n[3]];   // x must stay in 0–1, y need not
+}
+
+const easeFn = () => cubicBezier(...anim.bezier);
+
+// Overshooting curves (back-out, spring) exceed 1, which drives radius PAST its final
+// value mid-flight. Sizing the canvas for [0,1] alone lets those frames clip, so sample
+// the curve's true range instead of assuming it.
+function easeRange() {
+  const f = easeFn();
+  let mn = 0, mx = 1;
+  for (let i = 0; i <= 64; i++) { const y = f(i / 64); if (y < mn) mn = y; if (y > mx) mx = y; }
+  return [mn, mx];
+}
+
+/* ============================================================
+   Render
+   ============================================================ */
+const art = document.getElementById('art');
+const readout = document.getElementById('readout');
+let sk = null, canvasSize = BASE;
+
+function rebuild() {
+  sk = buildSkeleton(design);
+  const dots = layoutDots(sk, design);
+  const maxDist = dots.reduce((m, p) => Math.max(m, Math.hypot(p.x, p.y)), 0);
+  // Positions scale linearly with radius, so the widest moment of the animation is just
+  // the largest radius the eased timeline ever reaches — including any overshoot beyond
+  // the final value. Sizing for that up front keeps the frame from jumping or clipping.
+  const [e0, e1] = easeRange();
+  const rMax = Math.max(
+    design.radius, anim.iRadius,
+    lerp(anim.iRadius, design.radius, e0),
+    lerp(anim.iRadius, design.radius, e1)
+  );
+  const grow = rMax / Math.max(1, design.radius);
+  const reach = maxDist * grow + design.size;
+  canvasSize = Math.max(BASE, Math.ceil((reach + 8) * 2));
+  return dots;
+}
+
+function paint(dots, alphaFn) {
+  const c = canvasSize / 2;
+  const r = design.size;
+  // Squares match the circles' radius: side = 2r, centered on the dot. Emitted with plain
+  // x/y and no transform, so they stay upright however far the form rotates or twists.
+  const square = design.shape === 'square';
+  const side = r * 2;
+  const parts = [];
+  for (const d of dots) {
+    const a = alphaFn ? alphaFn(d) : 1;
+    if (a <= 0.002) continue;
+    const op = a < 0.999 ? ` fill-opacity="${round(a)}"` : '';
+    parts.push(square
+      ? `<rect x="${round(c + d.x - r)}" y="${round(c + d.y - r)}" width="${side}" height="${side}" fill="black"${op}/>`
+      : `<circle cx="${round(c + d.x)}" cy="${round(c + d.y)}" r="${r}" fill="black"${op}/>`);
+  }
+  art.setAttribute('viewBox', `0 0 ${canvasSize} ${canvasSize}`);
+  art.innerHTML = parts.join('');
+  return parts.length;
+}
+
+function render() {
+  const dots = rebuild();
+  const shown = paint(dots, null);
+  readout.textContent =
+    `${shown} dots · ${sk.ringCount} rings · ${(design.radius / sk.ringCount).toFixed(1)}px spacing · ` +
+    `${canvasSize}×${canvasSize} · [${sk.counts.join(', ')}]`;
+}
+
+/* ============================================================
+   Animation
+   ============================================================ */
+let rafId = null;
+const playBtn = document.getElementById('play');
+const PLAY_LABEL = 'Play &nbsp;<span style="opacity:.55">Enter</span>';
+
+function stopAnim(settle = true) {
+  if (!rafId) return;
+  cancelAnimationFrame(rafId);
+  rafId = null;
+  playBtn.innerHTML = PLAY_LABEL;
+  if (settle) render();
+}
+
+function frame(e) {
+  const radius = lerp(anim.iRadius, design.radius, e);
+  const rot = lerp(anim.iRot, design.rot, e);
+  const twist = lerp(anim.iTwist, design.twist, e);
+  const opacity = clamp(lerp(anim.iOpacity / 100, 1, e), 0, 1);   // overshoot curves exceed 1
+  const reveal = lerp(Math.min(anim.iDots, sk.total), sk.total, e);
+  const sym = design.sym;
+
+  const dots = layoutDots(sk, {
+    radius, rot, twist,
+    scatter: design.scatter, mirror: design.mirror, sym
+  });
+
+  // Each orbit holds `sym` dots and fades as a unit, so the pattern is symmetric
+  // at every frame rather than lopsided while dots stream in.
+  const shown = paint(dots, d => opacity * clamp((reveal - d.orbit * sym) / sym, 0, 1));
+  readout.textContent = `playing · ${(e * 100).toFixed(0)}% · ${shown} dots visible`;
+}
+
+function play() {
+  if (rafId) { stopAnim(); return; }
+  rebuild();
+  const ease = easeFn();
+  const dur = Math.max(50, anim.dur);
+  const t0 = performance.now();
+  playBtn.innerHTML = 'Stop';
+  const step = (now) => {
+    const raw = Math.min(1, (now - t0) / dur);
+    frame(ease(raw));
+    if (raw < 1) { rafId = requestAnimationFrame(step); }
+    else { rafId = null; playBtn.innerHTML = PLAY_LABEL; render(); }
+  };
+  rafId = requestAnimationFrame(step);
+}
+
+/* ============================================================
+   Wiring
+   ============================================================ */
+const DESIGN_SLIDERS = ['dots', 'radius', 'size', 'rot', 'twist', 'scatter', 'var', 'fall'];
+const ANIM_SLIDERS = ['dur', 'iRadius', 'iTwist', 'iRot', 'iOpacity', 'iDots'];
+const fmt = {
+  dots: v => v, radius: v => v, size: v => v.toFixed(1),
+  rot: v => v + '°', twist: v => v + '°',
+  scatter: v => v + '%', var: v => v + '%', fall: v => v + '%',
+  dur: v => v + 'ms', iRadius: v => v, iTwist: v => v + '°',
+  iRot: v => v + '°', iOpacity: v => v + '%', iDots: v => v
+};
+
+function syncUI() {
+  DESIGN_SLIDERS.forEach(k => {
+    document.getElementById(k).value = design[k];
+    document.getElementById('v-' + k).textContent = fmt[k](design[k]);
+  });
+  ANIM_SLIDERS.forEach(k => {
+    document.getElementById(k).value = anim[k];
+    document.getElementById('v-' + k).textContent = fmt[k](anim[k]);
+  });
+  document.getElementById('sym').value = design.sym;
+  document.getElementById('mirror').checked = design.mirror;
+  document.getElementById('square').checked = design.shape === 'square';
+  document.getElementById('ease').value = anim.ease;
+  document.getElementById('bezier').value = anim.bezier.join(', ');
+  document.getElementById('bezier').classList.remove('bad');
+}
+
+DESIGN_SLIDERS.forEach(k => {
+  document.getElementById(k).addEventListener('input', e => {
+    stopAnim(false);
+    design[k] = parseFloat(e.target.value);
+    document.getElementById('v-' + k).textContent = fmt[k](design[k]);
+    render();
+  });
+});
+ANIM_SLIDERS.forEach(k => {
+  document.getElementById(k).addEventListener('input', e => {
+    anim[k] = parseFloat(e.target.value);
+    document.getElementById('v-' + k).textContent = fmt[k](anim[k]);
+    if (k === 'iRadius' && !rafId) render();   // canvas size depends on it
+  });
+});
+
+document.getElementById('sym').addEventListener('change', e => {
+  stopAnim(false); design.sym = parseInt(e.target.value, 10); render();
+});
+document.getElementById('mirror').addEventListener('change', e => {
+  stopAnim(false); design.mirror = e.target.checked; render();
+});
+document.getElementById('square').addEventListener('change', e => {
+  stopAnim(false); design.shape = e.target.checked ? 'square' : 'circle'; render();
+});
+
+const bezierInput = document.getElementById('bezier');
+document.getElementById('ease').addEventListener('change', e => {
+  const v = e.target.value;
+  anim.ease = v;
+  if (v !== 'custom') {
+    anim.bezier = [...EASINGS[v]];
+    bezierInput.value = anim.bezier.join(', ');
+    bezierInput.classList.remove('bad');
+  }
+});
+bezierInput.addEventListener('input', e => {
+  const parsed = parseBezier(e.target.value);
+  if (!parsed) { e.target.classList.add('bad'); return; }
+  e.target.classList.remove('bad');
+  anim.bezier = parsed;
+  anim.ease = 'custom';
+  document.getElementById('ease').value = 'custom';
+});
+
+function shuffle() {
+  stopAnim(false);
+  design.seed = (Math.random() * 1e9) | 0;
+  render();
+}
+document.getElementById('shuffle').addEventListener('click', shuffle);
+playBtn.addEventListener('click', play);
+
+document.addEventListener('keydown', e => {
+  const typing = e.target.tagName === 'INPUT' && e.target.type === 'text';
+  if (typing || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); shuffle(); }
+  if (e.code === 'Enter') { e.preventDefault(); play(); }
+});
+
+document.getElementById('reset').addEventListener('click', () => {
+  stopAnim(false); design = { ...DESIGN_DEFAULTS }; syncUI(); render();
+});
+document.getElementById('reset-anim').addEventListener('click', () => {
+  stopAnim(false); anim = { ...ANIM_DEFAULTS, bezier: [...ANIM_DEFAULTS.bezier] }; syncUI(); render();
+});
+
+/* ---------- settings copy / paste ----------
+   Design carries the seed, without which settings reproduce a similar pattern
+   but never the same one. */
+const flash = (btn, msg, revert) => {
+  btn.textContent = msg;
+  setTimeout(() => (btn.textContent = revert), 1300);
+};
+
+const designPayload = () => ({
+  kind: 'design',
+  dots: design.dots, radius: design.radius, size: design.size, rot: design.rot,
+  twist: design.twist, scatter: design.scatter, var: design.var, fall: design.fall,
+  sym: design.sym, mirror: design.mirror, shape: design.shape, seed: design.seed
+});
+const animPayload = () => ({
+  kind: 'animation',
+  ease: anim.ease, bezier: anim.bezier, dur: anim.dur, iRadius: anim.iRadius,
+  iTwist: anim.iTwist, iRot: anim.iRot, iOpacity: anim.iOpacity, iDots: anim.iDots
+});
+
+async function readClipboard() {
+  try {
+    const t = await navigator.clipboard.readText();
+    if (t && t.trim()) return t;
+  } catch { /* headless / denied — fall back */ }
+  return window.prompt('Paste settings JSON:') || '';
+}
+
+function applyDesign(incoming) {
+  const next = { ...DESIGN_DEFAULTS };
+  for (const k of Object.keys(DESIGN_DEFAULTS)) {
+    if (!(k in incoming)) continue;
+    // shape is a string and mirror a bool — coercing either with Number() would wreck them.
+    if (k === 'mirror') next[k] = !!incoming[k];
+    else if (k === 'shape') next[k] = incoming[k] === 'square' ? 'square' : 'circle';
+    else next[k] = Number(incoming[k]);
+  }
+  if (!Number.isFinite(next.seed)) throw new Error('bad seed');
+  design = next;
+}
+function applyAnim(incoming) {
+  const next = { ...ANIM_DEFAULTS, bezier: [...ANIM_DEFAULTS.bezier] };
+  for (const k of ['dur', 'iRadius', 'iTwist', 'iRot', 'iOpacity', 'iDots']) {
+    if (k in incoming && Number.isFinite(Number(incoming[k]))) next[k] = Number(incoming[k]);
+  }
+  if (Array.isArray(incoming.bezier)) {
+    const b = parseBezier(incoming.bezier.join(','));
+    if (b) next.bezier = b;
+  } else if (typeof incoming.bezier === 'string') {
+    const b = parseBezier(incoming.bezier);
+    if (b) next.bezier = b;
+  }
+  next.ease = (incoming.ease && (incoming.ease in EASINGS || incoming.ease === 'custom'))
+    ? incoming.ease : 'custom';
+  if (next.ease !== 'custom' && !incoming.bezier) next.bezier = [...EASINGS[next.ease]];
+  anim = next;
+}
+
+document.getElementById('copy-design').addEventListener('click', async (e) => {
+  await navigator.clipboard.writeText(JSON.stringify(designPayload()));
+  flash(e.target, 'Copied — paste to Claude', 'Copy design');
+});
+document.getElementById('copy-anim').addEventListener('click', async (e) => {
+  await navigator.clipboard.writeText(JSON.stringify(animPayload()));
+  flash(e.target, 'Copied — paste to Claude', 'Copy animation');
+});
+
+// Both paste buttons accept either payload, so a mis-click still does the right thing.
+async function pasteInto(btn, fallbackLabel) {
+  const text = await readClipboard();
+  if (!text.trim()) return;
+  try {
+    const incoming = JSON.parse(text);
+    stopAnim(false);
+    if (incoming.kind === 'animation' || 'iRadius' in incoming || 'bezier' in incoming) applyAnim(incoming);
+    else applyDesign(incoming);
+    syncUI();
+    render();
+    flash(btn, 'Applied', fallbackLabel);
+  } catch {
+    flash(btn, "Couldn't read that", fallbackLabel);
+  }
+}
+document.getElementById('paste-design').addEventListener('click', e => pasteInto(e.target, 'Paste design'));
+document.getElementById('paste-anim').addEventListener('click', e => pasteInto(e.target, 'Paste animation'));
+
+/* ---------- export ---------- */
+function svgMarkup() {
+  return `<svg width="${canvasSize}" height="${canvasSize}" viewBox="0 0 ${canvasSize} ${canvasSize}" fill="none" xmlns="http://www.w3.org/2000/svg">\n${art.innerHTML.replace(/><circle/g, '>\n<circle')}\n</svg>\n`;
+}
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+document.getElementById('save-svg').addEventListener('click', () => {
+  download(new Blob([svgMarkup()], { type: 'image/svg+xml' }), `rose-${design.seed}.svg`);
+});
+document.getElementById('copy').addEventListener('click', async (e) => {
+  await navigator.clipboard.writeText(svgMarkup());
+  flash(e.target, 'Copied', 'Copy SVG markup');
+});
+document.getElementById('save-png').addEventListener('click', () => {
+  const scale = 2;
+  const img = new Image();
+  const blob = new Blob([svgMarkup()], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  img.onload = () => {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = canvasSize * scale;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    URL.revokeObjectURL(url);
+    cv.toBlob(b => download(b, `rose-${design.seed}.png`), 'image/png');
+  };
+  img.src = url;
+});
+
+syncUI();
+render();
+</script>
+</body>
+</html>
