@@ -183,10 +183,10 @@
     --rail-num: #ffffff;
     --rail-line: rgba(101,76,255,0.10);
   }
-  .rail-inner { position: relative; display: flex; flex-direction: column; gap: 8px; }  /* centered by .rail */
+  .rail-inner { position: relative; display: flex; flex-direction: column; gap: 22px; }  /* centered by .rail; 6×32 + 5×22 ≈ 302px tall */
   .rail-line {
-    position: absolute; left: 16px; transform: translateX(-50%);
-    top: 0; bottom: 0; width: 2px;         /* full viewport height, fixed behind the circles */
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: 16px; bottom: 16px; width: 2px;   /* spans first dot centre -> last dot centre (16px = half a 32px slot) */
     background: var(--rail-line);
   }
   /* fixed 32px hit box so the list never reflows; the visible circle is a scaled ::before */

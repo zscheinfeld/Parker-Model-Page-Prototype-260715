@@ -61,8 +61,8 @@
     <!-- Chapters (copy left 4 cols, inset for the sticky index rail) -->
     <div id="chapters" class="wrap">
       <aside id="rail" class="rail">
-        <div class="rail-line"></div>
         <div class="rail-inner">
+          <div class="rail-line"></div>
           <button class="rail-item is-active" data-idx="1"><span class="num">1</span></button>
           <button class="rail-item" data-idx="2"><span class="num">2</span></button>
           <button class="rail-item" data-idx="3"><span class="num">3</span></button>
@@ -75,23 +75,23 @@
         <section id="chapter-1" class="chapter">
           <div class="copy">
             <h2 class="ch-head">Our Model</h2>
-            <p class="ch-body">Ten years ago, we decided the promise of immunotherapy couldn&rsquo;t wait. With some of the world&rsquo;s leading scientists, we began to chart a strategic path toward patient impact, within &mdash; and outside &mdash; the system.</p>
+            <p class="ch-body">Ten years ago, we decided the promise of immunotherapy couldn&rsquo;t wait. We set out to rewire the way cancer research is done. Today, we think of ourselves as the connective tissue between academia and industry &mdash; here to ensure no promising science slips through the cracks.</p>
           </div>
         </section>
 
         <section id="chapter-2" class="chapter">
           <div class="copy">
             <h2 class="ch-head">An Unparalleled Network</h2>
-            <p class="ch-body">Parker Institutes partners with top academic centers to support leading-edge research, including the long-shot ideas most funders shy away from.</p>
-            <p class="ch-body">We define the scientific frontiers with the most potential to reach patients, and create the conditions for researchers to explore them freely and collaboratively. This results in hundreds of research publications per year.</p>
+            <p class="ch-body">Parker Institutes partners with top academic centers to support leading-edge research, including the long-shot ideas most funders steer clear of.</p>
+            <p class="ch-body">We define the scientific frontiers with the most potential to reach patients, and create the conditions for researchers to explore them freely and collaboratively. This results in a meaningful body of new research each year &mdash; with each finding bringing us closer to a future free from cancer.</p>
           </div>
         </section>
 
         <section id="chapter-3" class="chapter">
           <div class="copy">
-            <h2 class="ch-head">From IP to Patients</h2>
+            <h2 class="ch-head">Promise into Progress</h2>
             <p class="ch-body">Parker Innovations helps bridge the gap between lab and commercialization &mdash; so more discoveries have a chance to make a difference in the lives of more patients, more quickly.</p>
-            <p class="ch-body">As stewards of all intellectual property generated across our network, our Innovations team maintains a bird&rsquo;s-eye view of the most exciting emerging science to develop and license to biotech and pharma partners.</p>
+            <p class="ch-body">As stewards of all intellectual property generated across our network, our team maintains a bird&rsquo;s-eye view of the most exciting emerging science to develop and license to biotech and pharma partners.</p>
           </div>
         </section>
 
@@ -108,7 +108,7 @@
       <section id="chapter-5" class="chapter chapter-wide">
         <div class="copy opener-copy">
           <h2 class="ch-head">Vital Connections</h2>
-          <p class="ch-body">What happens among and between our activities and partners is truly special, taking innovation to patient impact with more creativity and speed.</p>
+          <p class="ch-body">Across academia and industry, our partners share our commitment to moving groundbreaking science into commercial markets &mdash; where they can extend and save lives.</p>
         </div>
       </section>
 
@@ -1716,10 +1716,10 @@ function updateCamera(st){
 }
 
 // ---------- DOM labels ----------
-const SIDE_LABEL_DY = 50;   // side view: how far the label sits UNDER its bar (px)
+const SIDE_LABEL_DY = 30;   // side view: how far the label sits UNDER its bar (px)
 // The Patients label is the exception — it tracks the DOT, not a bar edge. Eyeball knobs.
-const SIDE_PATIENT_GAP = 150;   // px between the label's right edge and the dot
-const SIDE_PATIENT_DY  = 16;    // px below the dot's centre
+const SIDE_PATIENT_GAP = 102;   // px between the label's right edge and the dot
+const SIDE_PATIENT_DY  = 4;     // px below the dot's centre (raised 12px from 16)
 const labelEls = {};
 function makeLabel(cls,html){ const d=document.createElement('div'); d.className=cls; d.innerHTML=html; document.body.appendChild(d); return d; }
 LAYERS.forEach(L=>{ labelEls[L.name]=makeLabel('layer-label',L.name); });
@@ -1744,12 +1744,13 @@ const _loff = (over={}) => ({
   Patients:    { ..._LOFF_BASE.Patients,    ...(over.Patients    || {}) },
 });
 const LABEL_OFF = {           // keyed by SCENES[].key
-  hero:  _loff(),
+  // Innovations & BioVentures share one placement across hero / chap4 / chap5 (see the label-drag bake)
+  hero:  _loff({ Innovations: { x:258, y:45 }, BioVentures: { x:226, y:-24 } }),
   chap1: _loff(),
   chap2: _loff({ Institutes:  { x: 38, y:-239 } }),
   chap3: _loff({ Innovations: { x:335, y: 230 } }),
-  chap4: _loff(),
-  chap5: _loff(),             // ch5/ch6 flatten to the side view, where offsets fade out
+  chap4: _loff({ Innovations: { x:258, y:45 }, BioVentures: { x:226, y:-24 } }),
+  chap5: _loff({ Innovations: { x:258, y:45 }, BioVentures: { x:226, y:-24 } }),   // offsets fade out in the side view
   chap6: _loff(),
 };
 // The LIVE, eased offsets — what updateLabels reads and what a panel drag writes. Eased
@@ -1782,9 +1783,12 @@ allLabelEls.forEach(el=>{ const s=document.createElement('span'); s.className='l
         const off=labelOffsets[t.name];
         // Bake into the CHAPTER being viewed, not the global — otherwise the ease would drag
         // the label straight back to that scene's stored value the moment you let go.
-        const tgt = LABEL_OFF[curSceneKey] && LABEL_OFF[curSceneKey][t.name];
-        if(tgt){ tgt.x = off.x; tgt.y = off.y; }
-        console.log(`${curSceneKey} · ${t.name}: { x:${Math.round(off.x)}, y:${Math.round(off.y)} }`);
+        // Innovations & BioVentures SHARE their placement across the hero / section 4 / section 5,
+        // so one adjustment in any of those carries through to all three.
+        const SHARED = ['hero','chap4','chap5'];
+        const scenes = (['Innovations','BioVentures'].includes(t.name) && SHARED.includes(curSceneKey)) ? SHARED : [curSceneKey];
+        scenes.forEach(sk=>{ const tgt = LABEL_OFF[sk] && LABEL_OFF[sk][t.name]; if(tgt){ tgt.x = off.x; tgt.y = off.y; } });
+        console.log(`${t.name}: { x:${Math.round(off.x)}, y:${Math.round(off.y)} }  ->  ${scenes.join(', ')}`);
         drag=null; _labelDragging=false;
         try{t.el.releasePointerCapture(e.pointerId);}catch(_){}
       }
@@ -2506,22 +2510,11 @@ function updateNarrativeUI(si){
   }
   const a = si - 1;   // 0-based active chapter (-1 in the hero)
   railItems.forEach((it,i)=>it.classList.toggle('is-active', i===a));
-  // Chapter 1 entry: nudge the rail DOWN so the "1" tracks the rising headline,
-  // converging to 0 exactly when it pins. Self-correcting from measured positions,
-  // clamped to never go up — so it settles at center and stays fixed afterward.
-  let offTarget = 0;
-  if(si <= 1 && chapterEls[0]){
-    const head = chapterEls[0].querySelector('.ch-head');
-    const dot0 = railItems[0];
-    if(head && dot0){
-      const h = head.getBoundingClientRect(), d = dot0.getBoundingClientRect();
-      const delta = (h.top + h.height/2) - (d.top + d.height/2);   // headline center − dot center
-      offTarget = Math.max(0, railOffset + delta);                 // only downward
-    }
-  }
-  railOffset = offTarget;
-  const railBase = -0.125 * window.innerHeight;   // raise the resting/pin position by 25% (12.5vh)
-  railInner.style.transform = `translateY(${railBase + railOffset}px)`;
+  // Rail sits vertically centred in the viewport: .rail is 100vh with align-items:center, so a
+  // zero transform is dead centre. (The old 12.5vh raise + chapter-1 "1 meets the headline" nudge
+  // are gone — they only made sense when the rail was raised to sit level with the copy.)
+  railOffset = 0;
+  railInner.style.transform = 'translateY(0px)';
   // nav text color follows the background crossfade (white on purple -> black on white)
   const nc = lerpHex(0xffffff, 0x000000, lightFactor);
   const ncss = `rgb(${(nc>>16)&255},${(nc>>8)&255},${nc&255})`;
