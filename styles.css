@@ -1,0 +1,497 @@
+/* Stylesheet for index.html — Parker Model WebGL prototype */
+  @font-face {
+    font-family: 'Hex Franklin';
+    src: url('HEX Franklin v0.3 - Bold.otf') format('opentype');
+    font-weight: 700;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Condensed';
+    src: url('HEX Franklin v0.3 Condensed - Extrabold.otf') format('opentype');
+    font-weight: 800;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin X Condensed';
+    src: url('HEX Franklin v0.3 X Condensed - Extrabold.otf') format('opentype');
+    font-weight: 800;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Medium';
+    src: url('HEX Franklin v0.3 - Medium.otf') format('opentype');   /* drop this file in to activate */
+    font-weight: 500;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Regular';
+    src: url('HEX Franklin v0.3 - Regular.otf') format('opentype');  /* drop this file in to activate */
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Caslon Ionic';
+    src: url('Caslon Ionic-Regular.otf') format('opentype');
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Caslon Ionic';
+    src: url('Caslon Ionic-Bold.otf') format('opentype');
+    font-weight: 700;
+    font-display: swap;
+  }
+
+  :root {
+    --ui-fg: #ffffff;
+    --ui-bg: rgba(20, 14, 60, 0.55);
+    --ui-line: rgba(255,255,255,0.18);
+    --accent: #FF5A00;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: 'Hex Franklin', 'Arial Narrow', system-ui, sans-serif;
+    background: #654CFF;
+    overflow-x: hidden;
+    color: var(--ui-fg);
+  }
+
+  /* ---- Opener photo background (chapters 5 + 6) ----
+     Sits BEHIND the canvas, not in front of it. z-index -1 paints it above body's purple —
+     which is the propagated root background — and below #stage. Left in the DOM at opacity 0
+     rather than toggled, so the 2MB image is fetched at parse time and the first fade doesn't pop.
+
+     It does NOT fade: its opacity is binary (see updatePinned), and the crossfade is done
+     entirely by the canvas's clear ALPHA dissolving away on top of it. That's deliberate. If
+     BOTH faded, a half-faded #photobg would be compositing over body's purple, so every
+     mid-fade frame would carry a purple wash — which is exactly the white -> purple -> photo
+     read we don't want on chapter 5. Opaque underneath, the canvas crossfades its own clear
+     colour (white or purple) straight to the photo.
+     The 40% black scrim rides in the same layer stack so the opener copy keeps its contrast. */
+  #photobg {
+    position: fixed; inset: 0; z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    background:
+      linear-gradient(rgba(0,0,0,0.40), rgba(0,0,0,0.40)),
+      url('IMG/full-bleed.png') center / cover no-repeat;
+  }
+
+  /* Fixed WebGL canvas behind everything */
+  #stage {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+  }
+  #stage canvas { display: block; }
+
+  /* ---- Content layer (scrolls; drives the scene narrative) ---- */
+  :root { --serif: 'Caslon Ionic', 'Big Caslon', 'Georgia', serif;
+          --cond: 'Hex Franklin Condensed', 'Hex Franklin', 'Franklin Gothic Condensed', 'Arial Narrow', sans-serif;
+          --xcond: 'Hex Franklin X Condensed', 'Hex Franklin Condensed', 'Hex Franklin', 'Arial Narrow', sans-serif; }
+  #page { position: relative; z-index: 1; pointer-events: none; }
+  #page .wrap {
+    width: 100%; max-width: 1440px; margin: 0 auto; padding: 0 40px;
+    display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 12px;
+  }
+  .section { min-height: 100vh; display: flex; align-items: center; }
+
+  /* ---- Scroll tracker (top bar; takes over while the nav is away) ----
+     Both backgrounds are set from JS (updateNarrativeUI) so they follow the bg crossfade:
+     white on purple -> #A294FF on white. */
+  #scrolltrack {
+    position: fixed; top: 0; left: 0; right: 0; height: 6px;
+    z-index: 7;                       /* above the nav (6) */
+    pointer-events: none;
+    opacity: 0; transition: opacity .4s cubic-bezier(.22,.61,.36,1);
+  }
+  #scrolltrack.on { opacity: 1; }
+  #scrolltrack-fill {
+    position: absolute; inset: 0;
+    transform: scaleX(0); transform-origin: 0 50%;
+  }
+
+  /* ---- Top nav (fixed; hides on scroll-down, slides back on scroll-up) ---- */
+  .nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 6; padding: 30px 0;
+    pointer-events: none; --nav-fg: #ffffff;
+    transition: transform .4s cubic-bezier(.22,.61,.36,1);
+  }
+  .nav.hidden { transform: translateY(-100%); }
+  .nav-wrap {
+    width: 100%; max-width: 1440px; margin: 0 auto; padding: 0 40px;
+    display: flex; align-items: center; justify-content: space-between; pointer-events: none;
+  }
+  .nav-logo {
+    font-family: var(--xcond); font-weight: 800; font-size: 27px; line-height: 1;
+    text-transform: uppercase; letter-spacing: 0.005em; color: var(--nav-fg); text-decoration: none;
+    pointer-events: auto;
+  }
+  .nav-logo span { opacity: 0.40; }
+  .nav-right { display: flex; align-items: center; gap: 40px; pointer-events: auto; }  /* extra space before search */
+  .nav-links { display: flex; align-items: center; gap: 24px; }
+  .nav-links a {
+    position: relative;
+    font-family: 'Hex Franklin Medium', 'Helvetica Neue', Arial, sans-serif; font-weight: 500;
+    font-size: 16px; color: var(--nav-fg); text-decoration: none; cursor: pointer; white-space: nowrap;
+  }
+  /* underline drawn below the text without altering height, so all items stay bottom-aligned */
+  .nav-links a.active::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 2px; background: var(--nav-fg);
+  }
+  .nav-search { background: none; border: 0; padding: 0; color: var(--nav-fg); cursor: pointer; display: flex; }
+  .nav-search svg { width: 20px; height: 20px; display: block; }
+
+  /* Hero — big display headline + supporting copy on the left */
+  #hero .wrap { align-items: center; }
+  .hero-copy {
+    grid-column: 1 / span 12;
+    pointer-events: none;            /* empty areas pass through to the model */
+    color: #ffffff;
+  }
+  .eyebrow {
+    margin: 0 0 24px; pointer-events: auto;
+    font-family: 'Hex Franklin', sans-serif; font-weight: 700; font-size: 24px; line-height: 1;
+  }
+  .hero-head {
+    margin: 0 0 40px; max-width: 66%; pointer-events: auto;
+    font-family: var(--xcond); font-weight: 800; text-transform: uppercase;
+    font-size: 160px; line-height: 78%; letter-spacing: -0.01em;
+  }
+  .hero-body {
+    max-width: 42%; pointer-events: auto;
+    font-family: var(--serif); font-size: 24px; line-height: 135%; letter-spacing: -0.01em;
+  }
+  .hero-body p { margin: 0 0 20px; }
+  .hero-body .hero-kicker { margin-bottom: 0; font-weight: 700; }
+
+  /* Chapters — sticky index rail + copy in the left 4 columns */
+  /* no bottom padding: #chapters must end exactly at ch6's bottom, because that edge is what
+     releases the sticky .rail — and it has to release in step with the footer arriving. */
+  #chapters { position: relative; align-items: start; }
+  .rail {
+    grid-column: 1 / span 1; grid-row: 1 / -1;   /* spans chapters 1-4 AND chapter 5 */
+    position: sticky; top: 0; height: 100vh;
+    display: flex; align-items: center;
+    overflow: hidden;                 /* clip the line at the viewport bottom */
+    pointer-events: none;
+    /* colors are lerped from JS so the rail stays legible on white AND on purple */
+    --rail-dot: rgba(101,76,255,0.5);
+    --rail-active: #654CFF;
+    --rail-num: #ffffff;
+    --rail-line: rgba(101,76,255,0.10);
+  }
+  .rail-inner { position: relative; display: flex; flex-direction: column; gap: 8px; }  /* centered by .rail */
+  .rail-line {
+    position: absolute; left: 16px; transform: translateX(-50%);
+    top: 0; bottom: 0; width: 2px;         /* full viewport height, fixed behind the circles */
+    background: var(--rail-line);
+  }
+  /* fixed 32px hit box so the list never reflows; the visible circle is a scaled ::before */
+  .rail-item {
+    position: relative; z-index: 1; pointer-events: auto;
+    width: 32px; height: 32px; margin: 0; padding: 0;
+    border: none; background: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--rail-num); font-family: var(--cond); font-weight: 800; font-size: 15px;
+  }
+  .rail-item::before {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 32px; height: 32px; border-radius: 50%; background: var(--rail-dot);
+    transform: translate(-50%,-50%) scale(0.375);   /* dot = 12px */
+    transition: transform .34s cubic-bezier(.22,.61,.36,1), background .2s ease;
+  }
+  .rail-item:hover::before { background: var(--rail-active); }   /* fully saturated on hover */
+  .rail-item.is-active::before { transform: translate(-50%,-50%) scale(1); background: var(--rail-active); }
+  .rail-item .num { position: relative; z-index: 1; opacity: 0; transition: opacity .2s ease; }
+  .rail-item.is-active .num { opacity: 1; }
+  .chapters-col { grid-column: 1 / span 4; grid-row: 1; padding-left: 60px; }
+  .chapter { min-height: 100vh; display: flex; align-items: center; }
+  /* chapters with a context callout get extra scroll; the copy pins so the text
+     stays put while the card fades in during the latter part of the scroll */
+  .chapter.has-callout { min-height: 250vh; display: block; padding-top: 45vh; }  /* +50% scroll so cards linger; lead-in so copy enters on white */
+  /* pin so the headline lines up with the rail's active number (raised 25%: 37.5vh) */
+  .chapter.has-callout .copy { position: sticky; top: calc(37.5vh - 125px); }
+  .copy { pointer-events: auto; }
+  .ch-head {
+    margin: 0 0 22px; font-family: var(--xcond); font-weight: 800;
+    text-transform: uppercase; font-size: 64px; line-height: 78%;
+    letter-spacing: -0.01em; color: #000000;
+  }
+  .ch-body {
+    margin: 0 0 18px; font-family: var(--serif);
+    font-size: 20px; line-height: 140%; letter-spacing: -0.01em; color: #000000;
+  }
+  .copy > :last-child { margin-bottom: 0; }
+
+  /* ---- Pinned chapters (5, 6 …) · purple, centered opener, model rises + pins ---- */
+  /* Full 12-col row of their own so the copy can center on the page instead of
+     living in the left 4-col channel like chapters 1-4. */
+  .chapter-wide {
+    grid-column: 1 / span 12;
+    display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 12px;
+    padding-top: 45vh;      /* copy enters from below the fold, on purple */
+  }
+  /* height = 110vh opener hold (CH5_LEAD) + 100vh rise + that chapter's beat edges + a viewport
+     of hold at the end. (the 45vh lead-in above is INSIDE this, before the chapter's top
+     reaches 0). The 110vh is what holds the full-bleed opener photo on after the copy has gone —
+     it's CH5_LEAD * 100; change one and the other has to follow. */
+  #chapter-5 { grid-row: 2; min-height: 840vh; }   /* 1.1 lead + 1.0 rise + 5.2vh of beats */
+  /* position:relative so .ch6-outro can place against it. No lead and no rise — it CARRIES ch5's
+     model rather than raising its own — so it's just 400vh of beats, then 60vh for the outro to
+     rise over the model; 560vh puts the footer's top edge at the viewport bottom exactly as the
+     outro centres. */
+  #chapter-6 { grid-row: 3; min-height: 560vh; position: relative; }
+  /* Never pins — the copy scrolls straight through and off, and the rising model
+     passes underneath it. Only the model pins. */
+  .opener-copy {
+    grid-column: 4 / span 6;   /* 6 cols, centered */
+    align-self: start;
+    text-align: center;
+  }
+  /* 90% leading — .ch-head's 78% is set for the 64px chapter heads; the openers are looser */
+  .opener-copy .ch-head { font-size: 82px; line-height: 90%; margin: 0 0 36px; color: #ffffff; }
+  .opener-copy .ch-body { color: #ffffff; margin: 0; }
+
+  /* ---- Chapter 6 outro · the closing line, scrolls up over the top-view target ----
+     Absolutely placed rather than in the grid flow: it has to enter the viewport exactly where
+     the beats END (ch6.top -780vh), and row-2 auto-placement would sit it right under the
+     opener. `top` is keyed to CH6's beat total — keep them in step.
+     top 500vh = the beat total (4.0 beats = 400vh; no lead, no rise — ch6 carries the model)
+     + 100vh, so it enters exactly as the last beat finishes and settles at y 40vh — 60vh (540px)
+     of travel, resting over the model. */
+  .ch6-outro { position: absolute; left: 0; right: 0; top: 500vh; text-align: center; }
+  .ch6-outro h2 {
+    margin: 0;
+    font-family: var(--xcond); font-weight: 800; text-transform: uppercase;
+    font-size: 160px; line-height: 90%; letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+
+  /* ---- Site footer · black band, revealed as everything scrolls up. Ported from the Institutes
+     prototype. Its top edge is the model-rise anchor; min-height keeps a full viewport so the
+     model fully clears before the footer content scrolls. ---- */
+  .footer{
+    --edge-pad:5vw;
+    --footer-pad:var(--edge-pad);
+    position:relative; min-height:100vh; background:#000; color:#fff;
+    padding-top:80px; overflow:hidden;
+  }
+  .footer-top{ display:flex; flex-wrap:wrap; gap:60px; padding:0 var(--footer-pad); }
+  .footer-signup{ flex:0 0 auto; width:min(100%,640px); }
+  .footer-signup h2{ font-family:'Hex Franklin', Arial, sans-serif; font-size:48px; font-weight:700; line-height:1.15; margin-bottom:40px; }
+  .footer-signup-form{ display:flex; align-items:baseline; justify-content:space-between; gap:20px; max-width:480px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,.4); }
+  .footer-signup-input{ flex:1; background:none; border:none; color:#fff; font-family:'Caslon Ionic', Arial, sans-serif; font-size:16px; }
+  .footer-signup-input::placeholder{ color:rgba(255,255,255,.6); }
+  .footer-signup-submit{ flex-shrink:0; background:none; border:none; color:#fff; font-family:'Hex Franklin Medium', Arial, sans-serif; font-size:16px; cursor:pointer; }
+  .footer-right{ flex:1; min-width:280px; display:flex; flex-direction:column; gap:60px; }
+  .footer-links{ display:flex; flex-wrap:wrap; gap:10vw; }
+  .footer-links-col{ display:flex; flex-direction:column; gap:40px; }
+  .footer-links-group h3{ font-family:'Hex Franklin', Arial, sans-serif; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; margin-bottom:16px; }
+  .footer-links-group a{ display:block; font-family:'Hex Franklin Medium', Arial, sans-serif; font-size:20px; color:#fff; text-decoration:none; }
+  .footer-links-group a+a{ margin-top:8px; }
+  .footer-social{ display:flex; gap:16px; }
+  .footer-social-icon{ width:24px; height:24px; background:#fff; border-radius:4px; }
+  .footer-legal{ padding-top:24px; border-top:1px solid rgba(255,255,255,.2); }
+  .footer-legal-links{ display:flex; flex-wrap:wrap; gap:32px; margin-bottom:12px; }
+  .footer-legal-links a{ font-family:'Hex Franklin Medium', Arial, sans-serif; font-size:14px; color:#fff; text-decoration:none; }
+  .footer-copyright{ font-size:14px; color:rgba(255,255,255,.7); }
+  .footer-tagline{ font-family:'Hex Franklin X Condensed', Arial, sans-serif; font-weight:800; color:#fff; text-transform:uppercase; white-space:nowrap; line-height:.9; font-size:15.82vw; padding:0 var(--edge-pad); box-sizing:border-box; margin-top:60px; }
+
+  /* ---- Labels rendered in DOM, projected from 3D ---- */
+  .layer-label {
+    position: fixed;
+    z-index: 2;   /* section 5 raises this (see body.sec5 rule) so labels sit above the model */
+    font-family: 'Hex Franklin', 'Arial Narrow', sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    transition: opacity .25s ease;
+    background: #654CFF;
+    color: rgba(255,255,255,0.8);
+    padding: 4px 10px;
+    border-radius: 5px;
+  }
+  /* the patient label is the only one set in the display face, per the ch5 comp */
+  /* Section 5: lift the layer labels above the cross-section model + connectors so the top-layer
+     label (BioVentures) isn't obscured by the bars/dot in front of it. Scoped to ch5 via body.sec5. */
+  body.sec5 .layer-label { z-index: 5; }
+  .layer-label.patient-label {
+    font-family: var(--xcond); font-weight: 800;
+    text-transform: uppercase; font-size: 36px; letter-spacing: -0.01em;
+  }
+  .layer-label.editable { pointer-events: auto; cursor: move; outline: 1px dashed var(--accent); outline-offset: 3px; }
+  .layer-label .loff { display: none; }
+  .layer-label.editable .loff { display: inline; margin-left: 6px; font-size: 12px; font-weight: 400; opacity: .75; }
+  .layer-handle {
+    position: fixed; z-index: 4;
+    width: 20px; height: 20px; margin-left:-10px; margin-top:-10px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: rgba(255,90,0,0.18);
+    cursor: grab; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .layer-handle:active { cursor: grabbing; background: rgba(255,90,0,0.35); }
+  .layer-handle .hval {
+    position: absolute; top: 24px; left: 50%; transform: translateX(-50%);
+    font-family: 'Hex Franklin','Arial Narrow',sans-serif; font-size: 11px;
+    color: var(--accent); white-space: nowrap; font-variant-numeric: tabular-nums;
+    background: rgba(0,0,0,0.25); padding: 1px 5px; border-radius: 4px;
+  }
+  /* ---- Context callout (frosted card that fades up over the model) ---- */
+  .callout {
+    position: fixed; z-index: 3; pointer-events: none; box-sizing: border-box;
+    padding: 24px;
+    background: rgba(255,255,255,0.8);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    color: #000000;
+    font-family: 'Hex Franklin Regular', 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 400; font-size: 16px; line-height: 140%;
+    box-shadow: 0 10px 44px rgba(20,16,60,0.10);
+    opacity: 0;
+  }
+  .callout strong { font-family: 'Hex Franklin', sans-serif; font-weight: 700; }   /* bold numbers */
+  /* optional photo above a card's body copy — sized to the card's content box, uncropped */
+  .callout .card-img {
+    display: block; width: 100%; height: auto;
+    margin: 0 0 18px;
+  }
+  /* card headline — the display face, purple, over the frosted card's black 16px body */
+  .callout .card-head {
+    display: block; margin: 0 0 12px;
+    font-family: var(--xcond); font-weight: 800;
+    font-size: 36px; line-height: 90%; letter-spacing: -0.01em;
+    color: #654CFF;
+  }
+  /* editorial card title (chapters 2-3) — the layer NAME set inside the card, matching the
+     floating label's face (black Hex Franklin) rather than the purple display card-head. */
+  .callout .card-title {
+    display: block; margin: 0 0 14px;
+    font-family: 'Hex Franklin', 'Helvetica Neue', Arial, sans-serif; font-weight: 700;
+    font-size: 24px; line-height: 100%; letter-spacing: -0.01em;
+    color: #000000;
+  }
+  /* card drag/edit mode */
+  .callout.editing { pointer-events: auto; cursor: move; outline: 1px dashed #654CFF; outline-offset: 4px; }
+  /* `solid` variant (chapter 5) — outlined, white text, sits on the purple instead of frosting
+     it. Fill is SOLID brand purple (= PAL.dark.bg, and ch5 is always lightFactor 0) so it reads
+     as flat background while masking the bars and arcs that would otherwise show through.
+     Chapters 1-4 and 6 use the plain frosted `.callout` above. */
+  .callout.solid {
+    background: #000000;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    border: 1px solid rgba(255,255,255,0.65);
+    color: #ffffff;
+    box-shadow: none;
+  }
+  .callout.solid strong { color: #ffffff; }
+  .qty-label {
+    position: fixed;
+    z-index: 2;
+    font-family: 'Hex Franklin', 'Arial Narrow', sans-serif;
+    font-weight: 700;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    line-height: 1.05;
+  }
+  .qty-label .num { display:block; font-size: 30px; color: var(--accent); }
+  .qty-label .cap { display:block; font-size: 13px; opacity: .85; }
+
+  /* ---- Connection lines between layer centers (expanded chapters view) ---- */
+  #links { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+  .link-line { stroke: #000000; stroke-width: 3; stroke-dasharray: 6 6; fill: none; }
+  /* chapter 5 connection arcs — white, on the purple cross-section.
+     stroke-width + dasharray are set per-frame in updateCh5Arcs (current = dashed + heavy,
+     settled = solid + thin), so they're deliberately not declared here. */
+  .ch5-arc { fill: none; stroke: #ffffff; stroke-linecap: butt; }
+
+  /* ---- Control panel ---- */
+  #panel {
+    position: fixed;
+    top: 16px; left: 16px;
+    z-index: 5;
+    width: 244px;
+    background: var(--ui-bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--ui-line);
+    border-radius: 14px;
+    padding: 14px;
+    color: var(--ui-fg);
+    font-size: 12px;
+    user-select: none;
+  }
+  #panel h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: 1.5px; text-transform: uppercase; }
+  #panel .sub { font-size: 10.5px; opacity: .6; margin: 0; letter-spacing: .5px; }
+  #panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; cursor:move; margin-bottom:12px; }
+  #panel-head:active { cursor:grabbing; }
+  #panel.dragging, #panel.dragging * { user-select:none; }
+  #panel-collapse {
+    flex:0 0 auto; width:24px; height:24px; border-radius:7px;
+    border:1px solid var(--ui-line); background:transparent; color:inherit;
+    font:inherit; font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #panel-collapse:hover { background:rgba(255,255,255,0.10); }
+  #panel.collapsed #panel-head { margin-bottom:0; }
+  #panel.collapsed #panel-body, #panel.collapsed .sub { display:none; }
+  #panel .group { margin-bottom: 14px; }
+  #panel .glabel { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; opacity: .55; margin-bottom: 7px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 7px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--ui-line);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    text-align: center;
+    transition: background .15s ease, border-color .15s ease, transform .05s ease;
+  }
+  .btn:hover { background: rgba(255,255,255,0.10); }
+  .btn:active { transform: scale(.97); }
+  .btn.on { background: var(--ui-fg); color: #4632c9; border-color: var(--ui-fg); }
+  .btn.accent.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .camread {
+    margin-top: 7px; font-size: 10.5px; letter-spacing: .3px;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+    cursor: pointer; user-select: all;
+  }
+  .qtyrow { display:flex; align-items:center; gap: 8px; margin-top: 8px; }
+  .qtyrow input[type=range] { flex:1; accent-color: var(--accent); }
+  .qtyrow .val { width: 34px; text-align:right; font-variant-numeric: tabular-nums; }
+  input[type=text].capinput {
+    width: 100%; margin-top: 8px; padding: 6px 8px; border-radius: 7px;
+    border: 1px solid var(--ui-line); background: transparent; color: inherit; font: inherit; font-size: 11px;
+  }
+  #hint {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 5; font-size: 11px; letter-spacing: .4px; opacity: .5; pointer-events: none;
+    color: var(--ui-fg); transition: color .35s ease;
+  }
+  #statepips {
+    position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
+    z-index: 5; display:flex; flex-direction: column; gap: 10px;
+  }
+  #statepips .pip {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 1px solid var(--ui-fg); opacity: .4; cursor: pointer;
+    transition: opacity .2s, background .2s;
+  }
+  #statepips .pip.on { opacity: 1; background: var(--ui-fg); }
+  body.light { --ui-fg:#2b2b3a; --ui-bg:rgba(255,255,255,0.72); --ui-line:rgba(40,30,120,0.18); }
+
+  /* Screen recording: hide the pointer. Toggled by HIDE_CURSOR in the script. `*` + !important
+     because several elements set their own cursor (panel drag, rail items, pips). */
+  html.hide-cursor, html.hide-cursor * { cursor: none !important; }

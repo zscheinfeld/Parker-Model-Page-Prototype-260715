@@ -3,21 +3,468 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Parker Model</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23654CFF'/></svg>" />
-<link rel="stylesheet" href="styles.css" />
+<title>Parker Model — WebGL Prototype</title>
+<style>
+  @font-face {
+    font-family: 'Hex Franklin';
+    src: url('HEX Franklin v0.3 - Bold.otf') format('opentype');
+    font-weight: 700;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Condensed';
+    src: url('HEX Franklin v0.3 Condensed - Extrabold.otf') format('opentype');
+    font-weight: 800;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin X Condensed';
+    src: url('HEX Franklin v0.3 X Condensed - Extrabold.otf') format('opentype');
+    font-weight: 800;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Medium';
+    src: url('HEX Franklin v0.3 - Medium.otf') format('opentype');   /* drop this file in to activate */
+    font-weight: 500;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Hex Franklin Regular';
+    src: url('HEX Franklin v0.3 - Regular.otf') format('opentype');  /* drop this file in to activate */
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Caslon Ionic';
+    src: url('Caslon Ionic-Regular.otf') format('opentype');
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'Caslon Ionic';
+    src: url('Caslon Ionic-Bold.otf') format('opentype');
+    font-weight: 700;
+    font-display: swap;
+  }
+
+  :root {
+    --ui-fg: #ffffff;
+    --ui-bg: rgba(20, 14, 60, 0.55);
+    --ui-line: rgba(255,255,255,0.18);
+    --accent: #FF5A00;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: 'Hex Franklin', 'Arial Narrow', system-ui, sans-serif;
+    background: #654CFF;
+    overflow-x: hidden;
+    color: var(--ui-fg);
+  }
+
+  /* ---- Opener photo background (chapters 5 + 6) ----
+     Sits BEHIND the canvas, not in front of it. z-index -1 paints it above body's purple —
+     which is the propagated root background — and below #stage. Left in the DOM at opacity 0
+     rather than toggled, so the 2MB image is fetched at parse time and the first fade doesn't pop.
+
+     It does NOT fade: its opacity is binary (see updatePinned), and the crossfade is done
+     entirely by the canvas's clear ALPHA dissolving away on top of it. That's deliberate. If
+     BOTH faded, a half-faded #photobg would be compositing over body's purple, so every
+     mid-fade frame would carry a purple wash — which is exactly the white -> purple -> photo
+     read we don't want on chapter 5. Opaque underneath, the canvas crossfades its own clear
+     colour (white or purple) straight to the photo.
+     The 40% black scrim rides in the same layer stack so the opener copy keeps its contrast. */
+  #photobg {
+    position: fixed; inset: 0; z-index: -1;
+    pointer-events: none;
+    opacity: 0;
+    background:
+      linear-gradient(rgba(0,0,0,0.40), rgba(0,0,0,0.40)),
+      url('IMG/full-bleed.png') center / cover no-repeat;
+  }
+
+  /* Fixed WebGL canvas behind everything */
+  #stage {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+  }
+  #stage canvas { display: block; }
+
+  /* ---- Content layer (scrolls; drives the scene narrative) ---- */
+  :root { --serif: 'Caslon Ionic', 'Big Caslon', 'Georgia', serif;
+          --cond: 'Hex Franklin Condensed', 'Hex Franklin', 'Franklin Gothic Condensed', 'Arial Narrow', sans-serif;
+          --xcond: 'Hex Franklin X Condensed', 'Hex Franklin Condensed', 'Hex Franklin', 'Arial Narrow', sans-serif; }
+  #page { position: relative; z-index: 1; pointer-events: none; }
+  #page .wrap {
+    width: 100%; max-width: 1440px; margin: 0 auto; padding: 0 40px;
+    display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 12px;
+  }
+  .section { min-height: 100vh; display: flex; align-items: center; }
+
+  /* ---- Scroll tracker (top bar; takes over while the nav is away) ----
+     Both backgrounds are set from JS (updateNarrativeUI) so they follow the bg crossfade:
+     white on purple -> #A294FF on white. */
+  #scrolltrack {
+    position: fixed; top: 0; left: 0; right: 0; height: 6px;
+    z-index: 7;                       /* above the nav (6) */
+    pointer-events: none;
+    opacity: 0; transition: opacity .4s cubic-bezier(.22,.61,.36,1);
+  }
+  #scrolltrack.on { opacity: 1; }
+  #scrolltrack-fill {
+    position: absolute; inset: 0;
+    transform: scaleX(0); transform-origin: 0 50%;
+  }
+
+  /* ---- Top nav (fixed; hides on scroll-down, slides back on scroll-up) ---- */
+  .nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 6; padding: 30px 0;
+    pointer-events: none; --nav-fg: #ffffff;
+    transition: transform .4s cubic-bezier(.22,.61,.36,1);
+  }
+  .nav.hidden { transform: translateY(-100%); }
+  .nav-wrap {
+    width: 100%; max-width: 1440px; margin: 0 auto; padding: 0 40px;
+    display: flex; align-items: center; justify-content: space-between; pointer-events: none;
+  }
+  .nav-logo {
+    font-family: var(--xcond); font-weight: 800; font-size: 27px; line-height: 1;
+    text-transform: uppercase; letter-spacing: 0.005em; color: var(--nav-fg); text-decoration: none;
+    pointer-events: auto;
+  }
+  .nav-logo span { opacity: 0.40; }
+  .nav-right { display: flex; align-items: center; gap: 40px; pointer-events: auto; }  /* extra space before search */
+  .nav-links { display: flex; align-items: center; gap: 24px; }
+  .nav-links a {
+    position: relative;
+    font-family: 'Hex Franklin Medium', 'Helvetica Neue', Arial, sans-serif; font-weight: 500;
+    font-size: 16px; color: var(--nav-fg); text-decoration: none; cursor: pointer; white-space: nowrap;
+  }
+  /* underline drawn below the text without altering height, so all items stay bottom-aligned */
+  .nav-links a.active::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 2px; background: var(--nav-fg);
+  }
+  .nav-search { background: none; border: 0; padding: 0; color: var(--nav-fg); cursor: pointer; display: flex; }
+  .nav-search svg { width: 20px; height: 20px; display: block; }
+
+  /* Hero — big display headline + supporting copy on the left */
+  #hero .wrap { align-items: center; }
+  .hero-copy {
+    grid-column: 1 / span 12;
+    pointer-events: none;            /* empty areas pass through to the model */
+    color: #ffffff;
+  }
+  .eyebrow {
+    margin: 0 0 24px; pointer-events: auto;
+    font-family: 'Hex Franklin', sans-serif; font-weight: 700; font-size: 24px; line-height: 1;
+  }
+  .hero-head {
+    margin: 0 0 40px; max-width: 66%; pointer-events: auto;
+    font-family: var(--xcond); font-weight: 800; text-transform: uppercase;
+    font-size: 160px; line-height: 78%; letter-spacing: -0.01em;
+  }
+  .hero-body {
+    max-width: 42%; pointer-events: auto;
+    font-family: var(--serif); font-size: 24px; line-height: 135%; letter-spacing: -0.01em;
+  }
+  .hero-body p { margin: 0 0 20px; }
+  .hero-body .hero-kicker { margin-bottom: 0; font-weight: 700; }
+
+  /* Chapters — sticky index rail + copy in the left 4 columns */
+  /* no bottom padding: #chapters must end exactly at ch6's bottom, because that edge is what
+     releases the sticky .rail — and it has to release in step with the footer arriving. */
+  #chapters { position: relative; align-items: start; }
+  .rail {
+    grid-column: 1 / span 1; grid-row: 1 / -1;   /* spans chapters 1-4 AND chapter 5 */
+    position: sticky; top: 0; height: 100vh;
+    display: flex; align-items: center;
+    overflow: hidden;                 /* clip the line at the viewport bottom */
+    pointer-events: none;
+    /* colors are lerped from JS so the rail stays legible on white AND on purple */
+    --rail-dot: rgba(101,76,255,0.5);
+    --rail-active: #654CFF;
+    --rail-num: #ffffff;
+    --rail-line: rgba(101,76,255,0.10);
+  }
+  .rail-inner { position: relative; display: flex; flex-direction: column; gap: 8px; }  /* centered by .rail */
+  .rail-line {
+    position: absolute; left: 16px; transform: translateX(-50%);
+    top: 0; bottom: 0; width: 2px;         /* full viewport height, fixed behind the circles */
+    background: var(--rail-line);
+  }
+  /* fixed 32px hit box so the list never reflows; the visible circle is a scaled ::before */
+  .rail-item {
+    position: relative; z-index: 1; pointer-events: auto;
+    width: 32px; height: 32px; margin: 0; padding: 0;
+    border: none; background: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--rail-num); font-family: var(--cond); font-weight: 800; font-size: 15px;
+  }
+  .rail-item::before {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 32px; height: 32px; border-radius: 50%; background: var(--rail-dot);
+    transform: translate(-50%,-50%) scale(0.375);   /* dot = 12px */
+    transition: transform .34s cubic-bezier(.22,.61,.36,1), background .2s ease;
+  }
+  .rail-item:hover::before { background: var(--rail-active); }   /* fully saturated on hover */
+  .rail-item.is-active::before { transform: translate(-50%,-50%) scale(1); background: var(--rail-active); }
+  .rail-item .num { position: relative; z-index: 1; opacity: 0; transition: opacity .2s ease; }
+  .rail-item.is-active .num { opacity: 1; }
+  .chapters-col { grid-column: 1 / span 4; grid-row: 1; padding-left: 60px; }
+  .chapter { min-height: 100vh; display: flex; align-items: center; }
+  /* chapters with a context callout get extra scroll; the copy pins so the text
+     stays put while the card fades in during the latter part of the scroll */
+  .chapter.has-callout { min-height: 200vh; display: block; padding-top: 45vh; }  /* lead-in so copy enters on white */
+  /* pin so the headline lines up with the rail's active number (raised 25%: 37.5vh) */
+  .chapter.has-callout .copy { position: sticky; top: calc(37.5vh - 125px); }
+  .copy { pointer-events: auto; }
+  .ch-head {
+    margin: 0 0 22px; font-family: var(--xcond); font-weight: 800;
+    text-transform: uppercase; font-size: 64px; line-height: 78%;
+    letter-spacing: -0.01em; color: #000000;
+  }
+  .ch-body {
+    margin: 0 0 18px; font-family: var(--serif);
+    font-size: 20px; line-height: 140%; letter-spacing: -0.01em; color: #000000;
+  }
+  .copy > :last-child { margin-bottom: 0; }
+
+  /* ---- Pinned chapters (5, 6 …) · purple, centered opener, model rises + pins ---- */
+  /* Full 12-col row of their own so the copy can center on the page instead of
+     living in the left 4-col channel like chapters 1-4. */
+  .chapter-wide {
+    grid-column: 1 / span 12;
+    display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 12px;
+    padding-top: 45vh;      /* copy enters from below the fold, on purple */
+  }
+  /* height = 110vh opener hold (CH5_LEAD) + 100vh rise + that chapter's beat edges + a viewport
+     of hold at the end. (the 45vh lead-in above is INSIDE this, before the chapter's top
+     reaches 0). The 110vh is what holds the full-bleed opener photo on after the copy has gone —
+     it's CH5_LEAD * 100; change one and the other has to follow. */
+  #chapter-5 { grid-row: 2; min-height: 840vh; }   /* 1.1 lead + 1.0 rise + 5.2vh of beats */
+  /* position:relative so .ch6-outro can place against it. No lead and no rise — it CARRIES ch5's
+     model rather than raising its own — so it's just 400vh of beats, then 60vh for the outro to
+     rise over the model; 560vh puts the footer's top edge at the viewport bottom exactly as the
+     outro centres. */
+  #chapter-6 { grid-row: 3; min-height: 560vh; position: relative; }
+  /* Never pins — the copy scrolls straight through and off, and the rising model
+     passes underneath it. Only the model pins. */
+  .opener-copy {
+    grid-column: 4 / span 6;   /* 6 cols, centered */
+    align-self: start;
+    text-align: center;
+  }
+  /* 90% leading — .ch-head's 78% is set for the 64px chapter heads; the openers are looser */
+  .opener-copy .ch-head { font-size: 82px; line-height: 90%; margin: 0 0 36px; color: #ffffff; }
+  .opener-copy .ch-body { color: #ffffff; margin: 0; }
+
+  /* ---- Chapter 6 outro · the closing line, scrolls up over the top-view target ----
+     Absolutely placed rather than in the grid flow: it has to enter the viewport exactly where
+     the beats END (ch6.top -780vh), and row-2 auto-placement would sit it right under the
+     opener. `top` is keyed to CH6's beat total — keep them in step.
+     top 500vh = the beat total (4.0 beats = 400vh; no lead, no rise — ch6 carries the model)
+     + 100vh, so it enters exactly as the last beat finishes and settles at y 40vh — 60vh (540px)
+     of travel, resting over the model. */
+  .ch6-outro { position: absolute; left: 0; right: 0; top: 500vh; text-align: center; }
+  .ch6-outro h2 {
+    margin: 0;
+    font-family: var(--xcond); font-weight: 800; text-transform: uppercase;
+    font-size: 160px; line-height: 90%; letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+
+  /* ---- Placeholder footer · revealed as everything scrolls up ---- */
+  #footer { position: relative; height: 100vh; background: #000000; }
+
+  /* ---- Labels rendered in DOM, projected from 3D ---- */
+  .layer-label {
+    position: fixed;
+    z-index: 2;
+    font-family: 'Hex Franklin', 'Arial Narrow', sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    transition: opacity .25s ease;
+    background: #654CFF;
+    color: rgba(255,255,255,0.8);
+    padding: 4px 10px;
+    border-radius: 5px;
+  }
+  /* the patient label is the only one set in the display face, per the ch5 comp */
+  .layer-label.patient-label {
+    font-family: var(--xcond); font-weight: 800;
+    text-transform: uppercase; font-size: 36px; letter-spacing: -0.01em;
+  }
+  .layer-label.editable { pointer-events: auto; cursor: move; outline: 1px dashed var(--accent); outline-offset: 3px; }
+  .layer-label .loff { display: none; }
+  .layer-label.editable .loff { display: inline; margin-left: 6px; font-size: 12px; font-weight: 400; opacity: .75; }
+  .layer-handle {
+    position: fixed; z-index: 4;
+    width: 20px; height: 20px; margin-left:-10px; margin-top:-10px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: rgba(255,90,0,0.18);
+    cursor: grab; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .layer-handle:active { cursor: grabbing; background: rgba(255,90,0,0.35); }
+  .layer-handle .hval {
+    position: absolute; top: 24px; left: 50%; transform: translateX(-50%);
+    font-family: 'Hex Franklin','Arial Narrow',sans-serif; font-size: 11px;
+    color: var(--accent); white-space: nowrap; font-variant-numeric: tabular-nums;
+    background: rgba(0,0,0,0.25); padding: 1px 5px; border-radius: 4px;
+  }
+  /* ---- Context callout (frosted card that fades up over the model) ---- */
+  .callout {
+    position: fixed; z-index: 3; pointer-events: none; box-sizing: border-box;
+    padding: 24px;
+    background: rgba(255,255,255,0.8);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    color: #000000;
+    font-family: 'Hex Franklin Regular', 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 400; font-size: 16px; line-height: 140%;
+    box-shadow: 0 10px 44px rgba(20,16,60,0.10);
+    opacity: 0;
+  }
+  .callout strong { font-family: 'Hex Franklin', sans-serif; font-weight: 700; }   /* bold numbers */
+  /* optional photo above a card's body copy — sized to the card's content box, uncropped */
+  .callout .card-img {
+    display: block; width: 100%; height: auto;
+    margin: 0 0 18px;
+  }
+  /* card headline — the display face, purple, over the frosted card's black 16px body */
+  .callout .card-head {
+    display: block; margin: 0 0 12px;
+    font-family: var(--xcond); font-weight: 800;
+    font-size: 36px; line-height: 90%; letter-spacing: -0.01em;
+    color: #654CFF;
+  }
+  /* `solid` variant (chapter 5) — outlined, white text, sits on the purple instead of frosting
+     it. Fill is SOLID brand purple (= PAL.dark.bg, and ch5 is always lightFactor 0) so it reads
+     as flat background while masking the bars and arcs that would otherwise show through.
+     Chapters 1-4 and 6 use the plain frosted `.callout` above. */
+  .callout.solid {
+    background: #654CFF;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+    border: 1px solid rgba(255,255,255,0.65);
+    color: #ffffff;
+    box-shadow: none;
+  }
+  .callout.solid strong { color: #ffffff; }
+  .qty-label {
+    position: fixed;
+    z-index: 2;
+    font-family: 'Hex Franklin', 'Arial Narrow', sans-serif;
+    font-weight: 700;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    line-height: 1.05;
+  }
+  .qty-label .num { display:block; font-size: 30px; color: var(--accent); }
+  .qty-label .cap { display:block; font-size: 13px; opacity: .85; }
+
+  /* ---- Connection lines between layer centers (expanded chapters view) ---- */
+  #links { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+  .link-line { stroke: #654CFF; stroke-width: 3; stroke-dasharray: 6 6; fill: none; }
+  /* chapter 5 connection arcs — white, on the purple cross-section.
+     stroke-width + dasharray are set per-frame in updateCh5Arcs (current = dashed + heavy,
+     settled = solid + thin), so they're deliberately not declared here. */
+  .ch5-arc { fill: none; stroke: #ffffff; stroke-linecap: butt; }
+
+  /* ---- Control panel ---- */
+  #panel {
+    position: fixed;
+    top: 16px; left: 16px;
+    z-index: 5;
+    width: 244px;
+    background: var(--ui-bg);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--ui-line);
+    border-radius: 14px;
+    padding: 14px;
+    color: var(--ui-fg);
+    font-size: 12px;
+    user-select: none;
+  }
+  #panel h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: 1.5px; text-transform: uppercase; }
+  #panel .sub { font-size: 10.5px; opacity: .6; margin: 0; letter-spacing: .5px; }
+  #panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; cursor:move; margin-bottom:12px; }
+  #panel-head:active { cursor:grabbing; }
+  #panel.dragging, #panel.dragging * { user-select:none; }
+  #panel-collapse {
+    flex:0 0 auto; width:24px; height:24px; border-radius:7px;
+    border:1px solid var(--ui-line); background:transparent; color:inherit;
+    font:inherit; font-size:16px; line-height:1; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #panel-collapse:hover { background:rgba(255,255,255,0.10); }
+  #panel.collapsed #panel-head { margin-bottom:0; }
+  #panel.collapsed #panel-body, #panel.collapsed .sub { display:none; }
+  #panel .group { margin-bottom: 14px; }
+  #panel .glabel { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; opacity: .55; margin-bottom: 7px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 7px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--ui-line);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    text-align: center;
+    transition: background .15s ease, border-color .15s ease, transform .05s ease;
+  }
+  .btn:hover { background: rgba(255,255,255,0.10); }
+  .btn:active { transform: scale(.97); }
+  .btn.on { background: var(--ui-fg); color: #4632c9; border-color: var(--ui-fg); }
+  .btn.accent.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .camread {
+    margin-top: 7px; font-size: 10.5px; letter-spacing: .3px;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+    cursor: pointer; user-select: all;
+  }
+  .qtyrow { display:flex; align-items:center; gap: 8px; margin-top: 8px; }
+  .qtyrow input[type=range] { flex:1; accent-color: var(--accent); }
+  .qtyrow .val { width: 34px; text-align:right; font-variant-numeric: tabular-nums; }
+  input[type=text].capinput {
+    width: 100%; margin-top: 8px; padding: 6px 8px; border-radius: 7px;
+    border: 1px solid var(--ui-line); background: transparent; color: inherit; font: inherit; font-size: 11px;
+  }
+  #hint {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 5; font-size: 11px; letter-spacing: .4px; opacity: .5; pointer-events: none;
+    color: var(--ui-fg); transition: color .35s ease;
+  }
+  #statepips {
+    position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
+    z-index: 5; display:flex; flex-direction: column; gap: 10px;
+  }
+  #statepips .pip {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 1px solid var(--ui-fg); opacity: .4; cursor: pointer;
+    transition: opacity .2s, background .2s;
+  }
+  #statepips .pip.on { opacity: 1; background: var(--ui-fg); }
+  body.light { --ui-fg:#2b2b3a; --ui-bg:rgba(255,255,255,0.72); --ui-line:rgba(40,30,120,0.18); }
+
+  /* Screen recording: hide the pointer. Toggled by HIDE_CURSOR in the script. `*` + !important
+     because several elements set their own cursor (panel drag, rail items, pips). */
+  html.hide-cursor, html.hide-cursor * { cursor: none !important; }
+</style>
 </head>
 <body>
   <div id="photobg"></div>
-  <!-- DEV: temporary accordion of prototype tuning controls. Remove once dialed in. -->
-  <div id="devPanel" style="position:fixed; bottom:16px; left:16px; z-index:99999; background:rgba(255,255,255,.95); border:1px solid #ccc; border-radius:8px; font:12px/1.3 -apple-system,system-ui,sans-serif; color:#333; box-shadow:0 2px 12px rgba(0,0,0,.2); width:312px; max-height:88vh; overflow:auto;">
-    <div id="devDrag" style="font-weight:700; padding:10px 12px; border-bottom:1px solid #eee; cursor:move; user-select:none;">Prototype controls <span style="opacity:.4; font-weight:400;">⠿ drag</span></div>
-    <div id="devSections"></div>
-    <div style="padding:10px 12px; border-top:1px solid #eee;">
-      <button id="devCopy" style="padding:5px 10px; font:inherit; cursor:pointer; border:1px solid #bbb; border-radius:5px; background:#f3f3f3;">Copy settings</button>
-      <textarea id="devOut" readonly style="display:block; width:100%; height:120px; margin-top:6px; box-sizing:border-box; font:11px/1.35 ui-monospace,Menlo,monospace; color:#333; border:1px solid #ddd; border-radius:5px; padding:6px; resize:vertical;" placeholder="Adjust sliders, then Copy settings — paste the result back to Claude."></textarea>
-    </div>
-  </div>
   <div id="stage"></div>
   <svg id="links"></svg>
   <div id="scrolltrack"><div id="scrolltrack-fill"></div></div>
@@ -119,73 +566,8 @@
       </section>
     </div>
 
-    <!-- footer — its top edge is the anchor that drags the model up and out -->
-    <footer id="footer" class="footer">
-      <div class="footer-top">
-        <div class="footer-signup">
-          <h2>Get updates<br>in your inbox</h2>
-          <form class="footer-signup-form" id="footerSignupForm" onsubmit="return false">
-            <input type="email" class="footer-signup-input" placeholder="Enter your email" required>
-            <button type="submit" class="footer-signup-submit">Submit</button>
-          </form>
-        </div>
-        <div class="footer-right">
-          <div class="footer-links">
-            <div class="footer-links-col">
-              <div class="footer-links-group">
-                <h3>Our Model</h3>
-                <a href="#">Cancer Institute</a>
-                <a href="#">Innovations</a>
-                <a href="#">Biotech Ventures</a>
-                <a href="#">View Our Model</a>
-              </div>
-              <div class="footer-links-group">
-                <h3>Learn</h3>
-                <a href="#">About Immunotherapy</a>
-                <a href="#">For Patients</a>
-              </div>
-              <div class="footer-links-group">
-                <h3>Our Network</h3>
-                <a href="#">Our Network</a>
-                <a href="#">Directory</a>
-              </div>
-            </div>
-            <div class="footer-links-col">
-              <div class="footer-links-group">
-                <h3>About Parker</h3>
-                <a href="#">About Parker</a>
-                <a href="#">Careers</a>
-                <a href="#">Contact Us</a>
-              </div>
-              <div class="footer-links-group">
-                <h3>News</h3>
-                <a href="#">News</a>
-                <a href="#">Press Kit</a>
-              </div>
-              <div class="footer-links-group">
-                <h3>Support</h3>
-                <a href="#">Donate</a>
-              </div>
-            </div>
-          </div>
-          <div class="footer-social">
-            <span class="footer-social-icon"></span>
-            <span class="footer-social-icon"></span>
-            <span class="footer-social-icon"></span>
-          </div>
-          <div class="footer-legal">
-            <div class="footer-legal-links">
-              <a href="#">Terms &amp; Conditions</a>
-              <a href="#">Privacy</a>
-              <a href="#">Cookies</a>
-              <a href="#">Transparency in Coverage</a>
-            </div>
-            <p class="footer-copyright">&copy; 2026 Parker Institute for Cancer Immunotherapy. All Rights Reserved</p>
-          </div>
-        </div>
-      </div>
-      <h1 class="footer-tagline">Cancer Ends Here</h1>
-    </footer>
+    <!-- placeholder footer — its top edge is the anchor that drags the model up and out -->
+    <footer id="footer"></footer>
   </div>
 
   <div id="statepips"></div>
@@ -354,30 +736,16 @@ const SUBS = [
   { name:'Impact',  rf:1.00, y:0.00 },
 ];
 const RIPPLES = [1.16, 1.30, 1.46]; // stroke-only outer rings
-// Unhighlighted (outline-state) circles get extra WEIGHT by stacking parallel copies of the ring,
-// packed tightly so they merge into one thick dashed band — WebGL can't set a line width > 1px, so
-// this is the only way to genuinely thicken the stroke. Cloned geometry keeps every copy's dashes
-// aligned, so the aesthetic is preserved (thick dashes, same pattern).
-//   THICK_N   = how many packed copies (the real "thickness"); 0 = base line only
-//   THICK_OFF = radial shift of the whole band, to fine-align it on the base line
-// Both are `let` so the dev sliders can tune them live; THICK_POOL caps how many copies exist.
-let STROKE_THICK_N   = 4;
-let STROKE_THICK_OFF = 0.0;
-const THICK_POOL     = 12;      // max copies built per ring (thickness slider caps here)
-const THICK_STEP     = 0.0016;  // radial spacing between packed copies (world units)
 
 // main layers bottom -> top
 // stackY = the real stacked model (Top / Tilted). sideY = the SIDE view's own vertical
 // spacing: even bands, and compressed so the bars read wide. They have to be separate —
 // a bar is 3.0 world units and the stackY tower is 4.9 tall, so fitting that tower in the
 // viewport caps the bars at ~4.3 columns. The cross-section comp wants ~7.
-// `hue` = per-layer identity colour used ONLY in the editorial chapters (1-4). It replaces
-// brand purple as the light-mode end of the dark<->light crossfade, so the dark ch5/ch6 openers
-// automatically stay on the base palette. Institutes' hue IS the brand purple → unchanged.
 const LAYERS = [
-  { name:'Institutes',  scale:1.0, stackY:0.0,  sideY:0.00, color:0x654CFF, hue:0x654CFF, expanded:[-0.63,0, 0.87] },
-  { name:'Innovations', scale:1.0, stackY:2.15, sideY:0.85, color:0x654CFF, hue:0xFF5A00, expanded:[ 1.49,0, 1.65] },
-  { name:'BioVentures', scale:1.0, stackY:3.75, sideY:1.71, color:0x654CFF, hue:0xE1E600, ch6Outline:0x757575, expanded:[ 1.36,0,-1.06] },
+  { name:'Institutes',  scale:1.0, stackY:0.0,  sideY:0.00, color:0x654CFF, expanded:[-0.63,0, 0.87] },
+  { name:'Innovations', scale:1.0, stackY:2.15, sideY:0.85, color:0x654CFF, expanded:[ 1.49,0, 1.65] },
+  { name:'BioVentures', scale:1.0, stackY:3.75, sideY:1.71, color:0x654CFF, expanded:[ 1.36,0,-1.06] },
 ];
 // Sits above the whole stack. The nearest thing is the top layer's CENTRE DOT, not its Parker
 // disc: BioVentures (stackY 3.75) + dotBaseY (SUBS[0].y 0.70 + 0.16) = 4.61. Measuring against
@@ -474,20 +842,10 @@ LAYERS.forEach((L, li) => {
     const fill = fillDisc(r); fill.position.y = yo;
     const stroke = dashedRing(r, {dashes: 7+si*2}); stroke.position.y = yo;
     fill.userData.sub = si; stroke.userData.sub = si;
-    // Pool of packed copies that build this ring's extra weight on unhighlighted layers.
-    // Radius per copy is set in layoutThick(); opacity in updateHighlight(); colour follows the
-    // base stroke in applyPaletteColors(). Cloned geometry keeps every copy's dashes aligned.
-    const strokeThicks = [];
-    for(let ti=0; ti<THICK_POOL; ti++){
-      const c = new THREEc.LineSegments(stroke.geometry.clone(), stroke.material.clone());
-      c.userData.role='strokeThick'; c.userData.sub = si; c.userData.active = false;
-      c.position.y = yo; c.material.opacity = 0; c.visible = false;
-      g.add(c); strokeThicks.push(c);
-    }
     // base (outer Impact) disc renders above the ripples so it can mask them
     if(si===SUBS.length-1) fill.renderOrder = -1;
     g.add(fill); g.add(stroke);
-    discs.push({ si, r, yo, fill, stroke, strokeThicks });
+    discs.push({ si, r, yo, fill, stroke });
   }
   // outer ripple rings (stroke only)
   const ripples=[];
@@ -594,8 +952,7 @@ const ROSE_FIELDS = [
     design:{ dots:140, radius:270, size:2.5, rot:0, twist:0,
              scatter:0, var:70, fall:55, sym:4, mirror:true, seed:1 } },
   // Innovations — the licensed-technologies field                (56 = 4 x 14)
-  // pure orange to match the Innovations layer identity (LAYERS[1].hue), not the brand purple
-  { layer:1, chapter:3, fill:ROSE_FILL, color:LAYERS[1].hue,
+  { layer:1, chapter:3, fill:ROSE_FILL, color:ROSE_COLOR,
     design:{ dots:56, radius:270, size:2.5, rot:0, twist:-6,
              scatter:32, var:70, fall:55, sym:4, mirror:true, seed:1 } },
   // ---- chapter 6's tilted stack: all three lit together ----
@@ -815,15 +1172,11 @@ const patient = new THREEc.Mesh(new THREEc.SphereGeometry(0.11,24,24),
 patient.position.set(0,PATIENT_Y,0);
 root.add(patient);
 
-// vertical axis line connecting centers -> patient. A thin CYLINDER, not a WebGL line (which is
-// locked to 1px), so its thickness is adjustable by the section-5 dev slider. Geometry runs
-// 0..PATIENT_Y with its origin translated to the BASE, so axisLine.scale.y still compresses it to
-// the current patient height exactly as the old line did; scale.x/z carry the thickness.
-const AXIS_R = 0.006;   // base radius at thickness 1x
-const _axisGeo = new THREEc.CylinderGeometry(AXIS_R, AXIS_R, PATIENT_Y, 8);
-_axisGeo.translate(0, PATIENT_Y/2, 0);
-const axisLine = new THREEc.Mesh(_axisGeo,
-  new THREEc.MeshBasicMaterial({color:P().line, transparent:true, opacity:0.5, depthWrite:false}));
+// vertical axis line connecting centers -> patient
+const axisLine = new THREEc.Line(
+  new THREEc.BufferGeometry().setFromPoints([new THREEc.Vector3(0,0,0), new THREEc.Vector3(0,PATIENT_Y,0)]),
+  new THREEc.LineBasicMaterial({color:P().line, transparent:true, opacity:0.5})
+);
 root.add(axisLine);
 
 // ---------- connection arcs ----------
@@ -860,7 +1213,7 @@ const STATES = [
   // radius is solved at runtime by refreshSideRadius() so the base bar lands on CH5_BAR_COLS
   { key:'Side',     theta: 0.0,  phi: 1.5708, radius: 5.8,  targetY: 1.24, spread: 0, arcs: 0, side: 1, ripple: 0, up: 1.00 },
   // targetY re-centres on the stack (0 -> PATIENT_Y 5.1)
-  { key:'Tilted',   theta: 0.55, phi: 0.91, radius: 10.0, targetY: 2.05, spread: 0, arcs: 0, side: 0, ripple: 0, up: 1.00 },
+  { key:'Tilted',   theta: 0.55, phi: 0.95, radius: 10.6, targetY: 2.55, spread: 0, arcs: 0, side: 0, ripple: 0, up: 1.00 },
 ];
 
 let scrollT = 0;         // 0..1 across all states
@@ -1012,10 +1365,10 @@ const ARRANGE = {
 // Scenes: hero + chapters 1-5. Layout/light/outline/view + per-layer arrangement.
 // `view` is optional and defaults to Expanded (chapters 1-4 all sit in Expanded).
 // `labelK` = per-layer label colour ON THE WHITE BACKGROUND, [Institutes, Innovations,
-// BioVentures]: 0 = #757575 (unhighlighted grey), 1 = black. Two colours only, so one scalar per
-// layer says it all and eases cleanly. On purple (hero/ch5/ch6) labels are white and this has no
-// effect — but hero mirrors chap1 and ch5/ch6 mirror chap4 so no colour shifts mid-crossfade.
-const LABEL_UNHL = 0x757575;   // unhighlighted label colour on the white editorial bg (was lilac 0xA294FF)
+// BioVentures]: 0 = #A294FF, 1 = black. Two colours only, so one scalar per layer says it all
+// and eases cleanly. On purple (hero/ch5/ch6) labels are white and this has no effect — but
+// hero mirrors chap1 and ch5/ch6 mirror chap4 so no colour shifts mid-crossfade.
+const LABEL_LILAC = 0xA294FF;
 const SCENES = [
   { key:'hero',  layout:'hero',      light:0, outline:1, labelK:[0,0,0], layers:ARRANGE.hero  },
   { key:'chap1', layout:'editorial', light:1, outline:0, labelK:[0,0,0], layers:ARRANGE.hero  },   // inherits hero position/size
@@ -1093,7 +1446,7 @@ const CH5_CARD_COLS = 3;     // context card width, in grid columns
 // A chapter can push the start later with `cardIn` — ch6 holds the lit ring on its own for
 // ~half a beat first. The drift pivot is derived from the window, so it follows.
 const CH5_CARD_IN = 0.10, CH5_CARD_OUT = 0.92, CH5_CARD_RAMP = 0.12;
-const CH5_CARD_DRIFT = 100;  // px travelled across the window (~±41); a chapter can override with `cardDrift`
+const CH5_CARD_DRIFT = 100;  // px travelled across the window (~±41), matches the ch1-4 callouts
 // Each entry names an arc GROUP by its from/to pair — every CH5_ARCS arc with that pair draws
 // together, so the four Institutes strands arrive as one gesture.
 const _L_II = ['Institutes','Innovations'],   // the four strands out of the institutes
@@ -1197,7 +1550,7 @@ const CH5_LEAD    = 1.10;
 function pinnedChapter(id, sceneIdx, beats, opts={}){
   // cumulative beat boundaries, in viewport heights past the pin (beats aren't uniform)
   const edges = []; let a = 0;
-  for(const b of beats){ a += (b.vh ?? opts.beatVh ?? CH5_BEAT_VH); edges.push(a); }
+  for(const b of beats){ a += (b.vh ?? CH5_BEAT_VH); edges.push(a); }
   return { id, sceneIdx, beats, edges,
            enter: opts.enter ?? CH5_ENTER, rest: opts.rest ?? CH5_REST_DY,
            lead: opts.lead ?? CH5_LEAD,
@@ -1207,7 +1560,6 @@ function pinnedChapter(id, sceneIdx, beats, opts={}){
            cardVariant: opts.cardVariant ?? '',
            cardCols: opts.cardCols ?? CH5_CARD_COLS,
            cardIn: opts.cardIn ?? CH5_CARD_IN,
-           cardDrift: opts.cardDrift ?? CH5_CARD_DRIFT,
            subFill: opts.subFill ?? null,
            labels: opts.labels ?? true,
            top:1e9, present:false, entering:false, _was:false,
@@ -1220,7 +1572,7 @@ const PIN = [
   // cardIn 0.30 — the lines get the first third of each beat to themselves before the card
   // starts. ch5ArcsDrawn() is what actually guarantees the order; this just buys the gesture
   // some scroll-space so the card isn't waiting on the arcs the whole way.
-  pinnedChapter('chapter-5', 5, CH5_BEATS, { arrive:'Expanded', cardVariant:'solid', cardIn:0.30, beatVh:1.2, cardDrift:160 }),
+  pinnedChapter('chapter-5', 5, CH5_BEATS, { arrive:'Expanded', cardVariant:'solid', cardIn:0.30 }),
   // CARRIES ch5's model: no exit, no second instance, no opener. It's already sitting there as
   // the cross-section, and beat 0 just tilts it up. lead/enter 0 so the beats start the moment
   // the chapter's top lands, and no `arrive` — beat 0's view is live immediately.
@@ -1244,7 +1596,6 @@ const footerEl = document.getElementById('footer');
 let modelPatOn = 1;                    // patient point's lit state, from the owning beat's `on`
 const subOn = SUBS.map(() => 1);       // per-sub-layer lit state, from the owning beat's `subs`
 let labelsOn = 1;                      // model labels, from the owning chapter's `labels`
-let editLabelsF = 1;                   // editorial floating labels: 0 in sections 1-3, 1 in section 4
 
 // ---------- chapters 5 + 6: the opener photo background ----------
 // Each opener (the centered headline) plays over a full-bleed photo: the purple fades to the
@@ -1271,30 +1622,6 @@ const PHOTOBG_IN0 = 0.25, PHOTOBG_IN1 = -0.15, PHOTOBG_OUT0 = -1.15, PHOTOBG_OUT
 let photoBgF = 0;   // 0 = purple, 1 = photo. Drives #photobg's opacity AND the canvas clear alpha.
 let ch5PhotoRising = false;   // chapter 5's opener photo is on its way IN — see bgLightF in frame()
 let bgLightF = 0;   // light factor for the CLEAR COLOUR only; forks off lightFactor in frame()
-// Chapter 6 palette fork. Its TILTED beats borrow the editorial look — per-layer hues on a beige
-// background — then it reverts to the base purple/white on the rise to the TOP view ("Patients are
-// the point", right before the "Cancer Ends Here" outro). `paintLightF` is what the MODEL colours
-// read (= lightFactor everywhere except ch6, where it follows ch6EditF); the global lightFactor keeps
-// its normal schedule so the rest of the page (nav, rail, narrative copy) is untouched.
-let paintLightF = 0;              // model-palette light factor (forks to ch6EditF inside chapter 6)
-let ch6EditF   = 0;              // 1 = ch6 tilted (editorial hues + beige), 0 = ch6 top (purple/white)
-let ch6BeigeF  = 0;              // eased beige-background presence for chapter 6
-let ch6PresF   = 0;              // eased "in chapter 6" presence (greys the patient dot + center line)
-let ch5BlackF  = 0;              // eased black-background presence for chapter 5 (dark mode)
-let ch6Taper   = 0.32;           // ch6 tilt: how much bigger the base layer is vs the top (dev slider)
-const CH6_BEIGE = 0xF5F1E9;
-// Section-5 side-view dev knobs (multipliers unless noted; connector widths are px, held in
-// CH5_ARC_W_CUR/PAST). All default to 1 so the current look is unchanged until a slider moves.
-let s5BaseThick = 0.70;          // base (Impact) bar thickness
-let s5SuppThick = 0.00;          // supporting (Network/Parker) bar thickness
-let s5AxisThick = 1.20;          // central vertical line thickness
-let s5WidthMul  = 1.00;          // model width (side view) — also moves the labels
-let s5Taper     = 0.38;          // side view: how much wider the base layer's bars are vs the top
-let s5Height    = 1.06;          // model height (side view): vertical extent of the stack
-let s5YOffset   = 0;             // side view: move the whole model up (+) / down (-) on screen
-let s5PatDot    = 1.20;          // top patient dot size
-let s5Fill      = [0.50, 0.25, 0.25];   // ch5 dark-mode disc fill opacity per sub-layer [Parker, Network, Impact]
-// ch5 arcs are authored PER-ARC (z0 start, z1 end, skew, bow) in CH5_ARCS — see the arc editor.
 const photoBgEl = document.getElementById('photobg');
 function photoBgFor(c, vh){
   if(!c.present) return 0;
@@ -1442,51 +1769,28 @@ function applyPaletteColors(){
   // the clear COLOUR rides bgLightF rather than p.bg so chapter 5 can crossfade white -> photo
   // (see frame()). Off the openers bgLightF === lightFactor and photoBgF is 0, so this is the
   // same opaque p.bg clear as everywhere else.
-  // Base clear colour rides bgLightF; chapter 6's tilted beats then blend it toward beige (ch6BeigeF).
-  // Section 5 blends the DARK end to black (ch5BlackF); ch6's tilted beats blend the result toward
-  // beige (ch6BeigeF). Black only shows once bgLightF is low (off the white photo-rise), so the
-  // opener's photo crossfade is preserved.
-  const darkBg = lerpHex(PAL.dark.bg, 0x000000, ch5BlackF);
-  renderer.setClearColor(lerpHex(lerpHex(darkBg, PAL.light.bg, bgLightF), CH6_BEIGE, ch6BeigeF), 1 - photoBgF);
+  renderer.setClearColor(lerpHex(PAL.dark.bg, PAL.light.bg, bgLightF), 1 - photoBgF);
   // in outline mode strokes go pure: white on the purple bg, brand purple on white
   const pure = lerpHex(0xffffff, 0x654CFF, lightFactor);
   const strokeCol = lerpHex(p.stroke, pure, outlineF);
   const rippleCol = lerpHex(p.ripple, pure, outlineF);
   layerObjs.forEach(o=>{
-    // Per-layer identity hue swapped in as the LIGHT end of the crossfade, so it only shows in the
-    // editorial chapters (paintLightF~1) and fades back to the base palette on the dark openers.
-    // paintLightF === lightFactor except inside chapter 6, where it rides the tilt->top move.
-    // Institutes' hue === brand purple, so these reduce to the original colours for it.
-    const hue = o.def.hue ?? 0x654CFF;
-    const lFill   = lerpHex(PAL.dark.fill,   hue, paintLightF);
-    let   lStroke = lerpHex(lerpHex(PAL.dark.stroke, hue, paintLightF), pure, outlineF);
-    // ch6 only: a layer can override its outline colour on the tilted beats (yellow reads too faint
-    // on beige, so BioVentures' rings go grey). ch6EditF is 0 outside chapter 6, so editorial is unchanged.
-    if(o.def.ch6Outline != null) lStroke = lerpHex(lStroke, o.def.ch6Outline, ch6EditF);
-    const lRipple = lerpHex(lerpHex(PAL.dark.ripple, hue, paintLightF), pure, outlineF);
-    const lDot    = lerpHex(PAL.dark.dot,    hue, paintLightF);
-    // side-view cross-section bars: white by default, the layer hue when hues are on (ch5 dark mode)
-    const lBar    = lerpHex(PAL.dark.line,   hue, paintLightF);
-    // base (Impact) disc keeps its pale-tint role; derive that tint from the hue
-    // (0x654CFF -> ~0xD8D2FF is a 0.75 mix toward white). updateHighlight reuses it.
-    o.baseFillCol = lerpHex(0xD8D2FF, lerpHex(hue, 0xFFFFFF, 0.75), paintLightF);
-    o.discs.forEach(d=>{ d.fill.material.color.setHex(d.si===SUBS.length-1 ? o.baseFillCol : lFill); d.stroke.material.color.setHex(lStroke); d.strokeThicks.forEach(c=>c.material.color.setHex(lStroke)); });
-    o.ripples.forEach(r=>r.material.color.setHex(lRipple));
-    o.dot.material.color.setHex(lDot);
-    o.sideBars.forEach(b=>b.material.color.setHex(lBar));
-    o.rippleRings.forEach(rr=>rr.line.material.color.setHex(lStroke));
+    o.discs.forEach(d=>{ d.fill.material.color.setHex(d.si===SUBS.length-1 ? 0xD8D2FF : p.fill); d.stroke.material.color.setHex(strokeCol); });
+    o.ripples.forEach(r=>r.material.color.setHex(rippleCol));
+    o.dot.material.color.setHex(p.dot);
+    o.sideBars.forEach(b=>b.material.color.setHex(p.line));
+    o.rippleRings.forEach(rr=>rr.line.material.color.setHex(strokeCol));
   });
-  patient.material.color.setHex(lerpHex(p.dot, 0x757575, ch6EditF));    // grey in ch6 tilted, white on the top-view close
-  axisLine.material.color.setHex(lerpHex(p.line, 0x757575, ch6PresF));  // grey centre line in chapter 6
+  patient.material.color.setHex(p.dot);
+  axisLine.material.color.setHex(p.line);
   arcsGroup.children.forEach(a=>a.material.color.setHex(strokeCol));
   document.body.classList.toggle('light', lightFactor>0.5);
-  document.body.classList.toggle('sec5', ch5BlackF>0.5);   // section-5 dark mode (raises label z-index)
 }
 
 const _v = new THREEc.Vector3();
 function updateLayout(st){
   const flat = 1 - st.spread;   // 1 = full 3D dome, 0 = flattened (expanded top)
-  layerObjs.forEach((o,li)=>{
+  layerObjs.forEach(o=>{
     // arrangement source: scene-interpolated by default; dev scratch when Layer handles are on
     let px, pz, size;
     if(handlesOn){ px=o.def.expanded[0]; pz=o.def.expanded[2]; size=o.def.sizeMul ?? 1; }
@@ -1497,40 +1801,27 @@ function updateLayout(st){
     // side view has its own (even, compressed) band spacing; Top/Tilted keep the real stack
     const baseY = _mix(o.def.stackY, o.def.sideY, st.side);
     const sy = lerp(baseY, 0.0, st.spread);          // flatten heights when expanded
-    o.group.position.set(sx, sy * _mix(1, s5Height, st.side), sz);   // side-view height knob
-    // chapter-6 taper: base layer (li 0) grows, top layer (li 2) shrinks, so the base reads more
-    // prominent than the top. Scaled by ch6EditF, so it only applies on ch6's tilted beats.
-    const taper = 1 + ch6Taper * ch6EditF * (1 - li);
-    o.group.scale.setScalar(size * taper);            // per-layer size (runtime)
+    o.group.position.set(sx, sy, sz);
+    o.group.scale.setScalar(size);                    // per-layer size (runtime)
     // collapse the internal dome so the spread-out layers are coplanar and
     // each center dot sits exactly at its ring center
-    o.discs.forEach(d=>{ d.fill.position.y = d.yo*flat; d.stroke.position.y = d.yo*flat; d.strokeThicks.forEach(c=>c.position.y = d.yo*flat); });
+    o.discs.forEach(d=>{ d.fill.position.y = d.yo*flat; d.stroke.position.y = d.yo*flat; });
     o.dot.position.y = o.dotBaseY*flat;
     // side-view cross-section bars: fade in and space vertically
     o.sideBars.forEach(bar=>{
       bar.position.y = bar.userData.yOff * st.side;
       bar.material.opacity = bar.userData.baseOpacity * st.side;
       bar.visible = st.side > 0.01;
-      // dev knobs: base vs supporting bar thickness (Y), model width + taper (Z). Bars only show in
-      // side view. Taper widens the base layer (li 0) and narrows the top (li 2).
-      bar.scale.y = (bar.userData.si === SUBS.length-1) ? s5BaseThick : s5SuppThick;
-      bar.scale.z = s5WidthMul * (1 + s5Taper * (1 - li));
     });
   });
   // axis line + patient only meaningful when stacked; both follow the side-view compression
   const stackF = 1 - st.spread;
-  let patY = _mix(PATIENT_Y, SIDE_PATIENT_Y, st.side) * _mix(1, s5Height, st.side);   // side-view height knob
-  // ch6: pull the patient 25% closer to the top node (BioVentures' centre dot) — the axis follows.
-  // Read the layer's live position/scale so the taper (which shrinks the top layer) is accounted for.
-  { const topO = layerObjs[layerObjs.length-1];
-    const topDotY = topO.group.position.y + topO.dotBaseY * topO.group.scale.y;
-    patY = _mix(patY, topDotY + (patY - topDotY)*0.75, ch6PresF); }
+  const patY = _mix(PATIENT_Y, SIDE_PATIENT_Y, st.side);
   patient.position.y = patY;
   // The sphere is a fixed 0.11 world units, but sideY squashes the stack from 4.9 to 2.48 —
   // so it reads twice as big in side view. Scale it back there only; Top/Tilted are fine.
-  patient.scale.setScalar(_mix(1, PATIENT_SIDE_SCALE, st.side) * _mix(1, s5PatDot, st.side) * _mix(1, 0.7, ch6PresF));   // 30% smaller in ch6
+  patient.scale.setScalar(_mix(1, PATIENT_SIDE_SCALE, st.side));
   axisLine.scale.y = patY / PATIENT_Y;             // geometry is built to PATIENT_Y
-  axisLine.scale.x = axisLine.scale.z = _mix(1, s5AxisThick, st.side);   // dev knob: central-line thickness (side view)
   axisLine.material.opacity = 0.5*stackF*(1 - 0.3*lightFactor);
   patient.visible = stackF>0.05;
   patient.material.opacity = stackF * _mix(CH5_DIM, 1, modelPatOn);
@@ -1570,33 +1861,19 @@ function updateHighlight(){
       // chapter 6's beats light the sub-layers cumulatively; 1 everywhere else
       const sOn = _mix(CH5_DIM, 1, subOn[d.si]);
       if(subFill != null){
-        // ch6: flat fill on the lit rings, NOTHING on the un-lit ones (truly outlined). Colour is
-        // the layer hue in the editorial (tilted) beats and white on the purple close (paintLightF).
+        // ch6: flat white fill on the lit rings, NOTHING on the un-lit ones (truly outlined).
         // No fillBg/baseBg — subFill is an absolute opacity, and strokes are left alone.
-        d.fill.material.color.setHex(lerpHex(0xFFFFFF, o.def.hue ?? 0x654CFF, paintLightF));
+        d.fill.material.color.setHex(0xFFFFFF);
         d.fill.material.opacity = subFill * subOn[d.si] * fMul * hl * solid * fillOut;
       } else if(d.si === SUBS.length-1){
-        // base (outer) disc. Normal: pale tint @80% -> outline white @60%. Section-5 dark mode
-        // (ch5BlackF): flat layer-hue at 50%. Blend between them.
-        d.fill.material.color.setHex(lerpHex(lerpHex(o.baseFillCol ?? 0xD8D2FF, 0xFFFFFF, lo), o.def.hue ?? 0x654CFF, ch5BlackF));
-        const normOp = _mix(0.8, 0.6, lo) * fillBg * baseBg;
-        d.fill.material.opacity = _mix(normOp, s5Fill[d.si] * (1-lo), ch5BlackF) * fMul * hl * solid * fillOut * sOn;
+        // base disc: filled #D8D2FF @80% -> outline white @60%
+        d.fill.material.color.setHex(lerpHex(0xD8D2FF, 0xFFFFFF, lo));
+        d.fill.material.opacity = _mix(0.8, 0.6, lo) * fMul * hl * solid * fillOut * fillBg * baseBg * sOn;
       } else {
-        // inner discs (colour is the hue, set in applyPaletteColors). Normal: faint p.fillA.
-        // Section-5 dark mode: flat per-sub-layer opacity (s5Fill). Present when filled, gone when outlined.
-        const normOp = p.fillA * (1-lo) * fillBg;
-        d.fill.material.opacity = _mix(normOp, s5Fill[d.si] * (1-lo), ch5BlackF) * fMul * hl * solid * fillOut * sOn;
+        // inner fills: present when filled, gone when outlined
+        d.fill.material.opacity = p.fillA * (1-lo) * fMul * hl * solid * fillOut * fillBg * sOn;
       }
       d.stroke.material.opacity = strokeA * sMul * boost * solid * (subFill != null ? 1 : sOn);
-      // Unhighlighted (outline-state, lo->1) rings light their packed copies too -> thicker weight;
-      // highlighted (filled, lo->0) rings hide them and stay single-weight. `lightFactor` scopes this
-      // to the light editorial sections (1-4) so the dark hero / ch5 / ch6 keep single-weight rings.
-      const thickOp = d.stroke.material.opacity * lo * lightFactor;
-      d.strokeThicks.forEach(c=>{
-        const on = c.userData.active && thickOp > 0.004;
-        c.material.opacity = on ? thickOp : 0;
-        c.visible = on;
-      });
     });
     // static outer rings give way to the moving ripples when they're active
     const staticRipMul = rippleSpeed>0 ? (1-rippleView) : 1;
@@ -1691,9 +1968,7 @@ function updateCamera(st){
   const theta = st.theta + userTheta;
   const phi   = Math.max(0.001, Math.min(Math.PI/2, st.phi + userPhi));
   const R=st.radius * curL.zoom;
-  // s5YOffset shifts the whole side-view framing: lowering the camera target raises the model on
-  // screen. Scoped to the side view (st.side); labels/arcs project through the camera, so they follow.
-  const tx=0, ty=st.targetY - s5YOffset * st.side, tz=0;
+  const tx=0, ty=st.targetY, tz=0;
   camera.position.set(
     tx + R*Math.sin(phi)*Math.cos(theta),
     ty + R*Math.cos(phi),
@@ -1863,13 +2138,8 @@ function updateLabels(st){
   // On purple every label is white. On white each LAYER label picks its own colour from the
   // scene's eased labelK (#A294FF <-> black); the patient label isn't per-scene and just goes
   // black, as it always did.
-  const labelFgFor = li => css(lerpHex(0xffffff, lerpHex(LABEL_UNHL, 0x000000, labelK[li]), lightFactor));
+  const labelFgFor = li => css(lerpHex(0xffffff, lerpHex(LABEL_LILAC, 0x000000, labelK[li]), lightFactor));
   const labelFg = css(lerpHex(0xffffff, 0x000000, lightFactor));
-  // Side view: left-align every layer label to Institutes' (widest, li 0) bar left edge, so they
-  // line up in a column instead of staggering with the taper. (Patients is positioned separately.)
-  const _iw = new THREEc.Vector3(); layerObjs[0].group.getWorldPosition(_iw);
-  const instBarHalf = BASE_R * layerObjs[0].def.scale * (layerObjs[0].curSize ?? 1) * s5WidthMul * (1 + s5Taper);
-  const instLeftX = projectToScreen(new THREEc.Vector3(0, _iw.y, _iw.z + instBarHalf)).x;
   layerObjs.forEach((o,li)=>{
     const el=labelEls[o.def.name];
     const wp=new THREEc.Vector3(); o.group.getWorldPosition(wp);
@@ -1884,17 +2154,15 @@ function updateLabels(st){
     // so fade them out as we go flat or they'd drag labels off the bar.
     const off=labelOffsets[o.def.name];
     const offF = 1 - curSide;
-    const barHalf = BASE_R * o.def.scale * (o.curSize ?? 1) * s5WidthMul * (1 + s5Taper * (1 - li));   // width + taper move labels too
+    const barHalf = BASE_R * o.def.scale * (o.curSize ?? 1);
     const edge = projectToScreen(new THREEc.Vector3(0, wp.y, wp.z + barHalf));
-    const left = lerp(s.x, instLeftX + el.offsetWidth/2, curSide) + off.x*offF;   // side view: column-align to Institutes
+    const left = lerp(s.x, edge.x + el.offsetWidth/2, curSide) + off.x*offF;
     const topY = lerp(s.y-14, edge.y + SIDE_LABEL_DY, curSide) + off.y*offF;
     el.style.left=left+'px'; el.style.top=topY+'px';
     el.style.background=labelBg; el.style.color=labelFgFor(li);
     const dim = (hlLayer===-1||hlLayer===li) ? 1 : 0.35;   // dim non-highlighted layers
     // in chapter 5, un-lit layers' labels drop back with their bars
-    // the three layer labels stay fully lit (no cumulative-reveal dimming) — BioVentures no longer
-    // fades in late. The patient label keeps its own modelPatOn logic below.
-    el.style.opacity = (s.z<1 ? 1 : 0) * dim * labelsOn * editLabelsF;
+    el.style.opacity = (s.z<1 ? 1 : 0) * dim * _mix(CH5_DIM, 1, o.curOn ?? 1) * labelsOn;
     if(labelEditOn) el.querySelector('.loff').textContent = ` (${Math.round(off.x)}, ${Math.round(off.y)})`;
   });
   const ps=projectToScreen(new THREEc.Vector3(0,patient.position.y+0.15,0));
@@ -1961,36 +2229,13 @@ function activeChapter(){
 // ---------- optional per-chapter context callouts (fade up & out over the model) ----------
 const CALLOUTS = {   // chapter number -> HTML (omit a chapter for no callout)
   1: "We built an all-in ecosystem that functions fluidly across three key phases of drug development: discovery, IP development, and commercialization.",
-  2: "<span class='card-title'>Institutes</span><strong>140</strong> Researchers across <strong>19</strong> institutions",
-  3: "<span class='card-title'>Innovations</span><strong>99</strong> licensed technologies in a portfolio of <strong>342</strong> inventions.",
+  2: "<strong>140</strong> Researchers across <strong>19</strong> institutions",
+  3: "<strong>99</strong> licensed technologies in a portfolio of <strong>342</strong> inventions.",
   4: "Revenue from licensing and acquisitions then goes back into research.",
 };
 const calloutEl = document.createElement('div');
 calloutEl.className = 'callout';
 document.body.appendChild(calloutEl);
-// per-chapter placement offsets (px), adjustable via the card edit mode
-const cardOffsets = { '1':{x:0,y:0}, '2':{x:57,y:-157}, '3':{x:173,y:-19}, '4':{x:0,y:0} };
-let curCalloutKey = null;   // which chapter's card is currently showing (for the drag handler)
-let cardEditOn = false;     // toggled by the dev panel; enables dragging the visible card
-(function setupCardDrag(){
-  let drag=null;
-  calloutEl.addEventListener('pointerdown', e=>{
-    if(!cardEditOn || !curCalloutKey) return;
-    e.preventDefault();
-    const co = cardOffsets[curCalloutKey];
-    drag = { key:curCalloutKey, sx:e.clientX, sy:e.clientY, ox:co.x, oy:co.y };
-    calloutEl.setPointerCapture(e.pointerId);
-  });
-  calloutEl.addEventListener('pointermove', e=>{
-    if(!drag) return;
-    const co = cardOffsets[drag.key];
-    co.x = drag.ox + (e.clientX - drag.sx);
-    co.y = drag.oy + (e.clientY - drag.sy);
-  });
-  const end = e=>{ if(drag){ console.log(`card ${drag.key}: { x:${Math.round(cardOffsets[drag.key].x)}, y:${Math.round(cardOffsets[drag.key].y)} }`); drag=null; try{calloutEl.releasePointerCapture(e.pointerId);}catch(_){} } };
-  calloutEl.addEventListener('pointerup', end);
-  calloutEl.addEventListener('pointercancel', end);
-})();
 // give callout chapters the extra-scroll / pinned-copy treatment
 for(const key in CALLOUTS){ const el=document.getElementById('chapter-'+key); if(el) el.classList.add('has-callout'); }
 // 0..1 scroll progress through a pinned chapter
@@ -2015,16 +2260,12 @@ function updateCallouts(){
     const op = calloutOpacity(cp);
     if(op > bestOp){ bestOp=op; best=key; bestCp=cp; }
   }
-  if(bestOp < 0.01){ calloutEl.style.opacity=0; curCalloutKey=null; return; }
-  curCalloutKey = best;
+  if(bestOp < 0.01){ calloutEl.style.opacity=0; return; }
   calloutEl.innerHTML = CALLOUTS[best];
   const cw = Math.min(window.innerWidth, MAXW);
-  // chapters 2 & 3 hold the layer name — a narrower card (max 250); 1 & 4 keep the 4-column card
-  calloutEl.style.width = (best==='2' || best==='3') ? '250px'
-                        : ((((4*_COLW + 3*_G)/1440) * cw) + 'px');
-  const co = cardOffsets[best] || {x:0,y:0};
-  calloutEl.style.left = (regionX + regionW/2 + co.x) + 'px';     // centered in the model container + drag offset
-  calloutEl.style.top  = (vh*0.5 + co.y) + 'px';
+  calloutEl.style.width = (((4*_COLW + 3*_G)/1440) * cw) + 'px';   // 4 columns wide
+  calloutEl.style.left = (regionX + regionW/2) + 'px';            // centered in the model container
+  calloutEl.style.top  = (vh*0.5) + 'px';
   const drift = (0.67 - bestCp) * 150;                            // drifts upward as it comes and goes
   calloutEl.style.transform = `translate(-50%, calc(-50% + ${drift}px))`;
   calloutEl.style.opacity = bestOp;
@@ -2103,29 +2344,11 @@ LINKS.forEach(L=>{
   linksSvg.appendChild(L.el);
 });
 const _lpa = new THREEc.Vector3(), _lpb = new THREEc.Vector3();
-const _lpOff = new THREEc.Vector3(), _camRight = new THREEc.Vector3(), _dScale = new THREEc.Vector3();
-// On-screen radius (px) of a layer's centre dot. Links stop at this radius instead of running
-// to the dot's centre, so the (canvas) dot reads as sitting ON TOP of the (SVG) dotted line
-// rather than being split by it.
-function dotScreenRadius(dot, worldPos){
-  const wr = (dot.geometry.parameters.radius || 0.055) * dot.getWorldScale(_dScale).x;
-  _camRight.setFromMatrixColumn(camera.matrixWorld, 0);   // camera's world right axis
-  _lpOff.copy(worldPos).addScaledVector(_camRight, wr);
-  const c = projectToScreen(worldPos), e = projectToScreen(_lpOff);
-  return Math.hypot(e.x - c.x, e.y - c.y);
-}
-let linkMarch = 0, linkMarchOn = 0;
-const LINK_MARCH_STEP = 0.4;   // px/frame the triangle's dashes flow once all three links complete
 function updateLinks(si){
   // chapter-4 scroll progress (drives the card-triggered link)
   let cp4 = 0;
   const el4 = document.getElementById('chapter-4');
   if(el4){ const r=el4.getBoundingClientRect(); cp4 = Math.max(0, Math.min(1, -r.top/Math.max(1, r.height-window.innerHeight))); }
-  // Once the triangle is fully drawn (all three links), march the dashes around it (from->to on each,
-  // so the flow circulates Institutes->Innovations->BioVentures->Institutes) to imply motion.
-  const triComplete = (pinOwner < 0) && LINKS.every(L => L.progress > 0.9);
-  linkMarchOn += ((triComplete ? 1 : 0) - linkMarchOn) * 0.08;   // ease the motion in on completion
-  linkMarch = (linkMarch + LINK_MARCH_STEP * linkMarchOn) % 12;   // 12 = dash+gap period (6 6)
   LINKS.forEach(L=>{
     const target = L.card ? ((si>=4 && cp4 >= 0.42) ? 1 : 0)   // draws when the chapter-4 card appears
                           : ((si >= L.at) ? 1 : 0);            // draws when its chapter triggers
@@ -2140,20 +2363,9 @@ function updateLinks(si){
     layerObjs[L.from].dot.getWorldPosition(_lpa);
     layerObjs[L.to].dot.getWorldPosition(_lpb);
     const a = projectToScreen(_lpa), b = projectToScreen(_lpb);
-    // Trim both ends to the dot edge so the centre dots overlap the line, not the reverse.
-    const ra = dotScreenRadius(layerObjs[L.from].dot, _lpa);
-    const rb = dotScreenRadius(layerObjs[L.to].dot,   _lpb);
-    let ax = a.x, ay = a.y, bx = b.x, by = b.y;
-    const dx = b.x-a.x, dy = b.y-a.y, dist = Math.hypot(dx, dy);
-    if(dist > ra + rb + 1){                 // guard: skip trim if the dots would overlap
-      const ux = dx/dist, uy = dy/dist;
-      ax = a.x + ux*ra; ay = a.y + uy*ra;   // pull start clear of the `from` dot
-      bx = b.x - ux*rb; by = b.y - uy*rb;   // stop end at the `to` dot's edge
-    }
-    L.el.setAttribute('x1', ax); L.el.setAttribute('y1', ay);
-    L.el.setAttribute('x2', ax + (bx-ax)*L.progress);   // grows from `from` toward `to`
-    L.el.setAttribute('y2', ay + (by-ay)*L.progress);
-    L.el.style.strokeDashoffset = -linkMarch;           // marching dashes (0 while incomplete)
+    L.el.setAttribute('x1', a.x); L.el.setAttribute('y1', a.y);
+    L.el.setAttribute('x2', a.x + (b.x-a.x)*L.progress);   // grows from `from` toward `to`
+    L.el.setAttribute('y2', a.y + (b.y-a.y)*L.progress);
   });
 }
 
@@ -2180,38 +2392,32 @@ let railF = 0;   // rail visibility — separate from lightFactor, see below
 //   BioVentures -> Patients     the single closing hop
 // The z1s of the first group ARE the z0s of the second — that's what makes the four strands
 // look like they continue upward rather than restarting somewhere new.
-// Authored per-arc (free-form / not mirrored) via the arc editor. z0 = launch on the from-bar,
-// z1 = landing on the to-bar, skew = peak lean (+launch/-landing), bow = peak height, cz = explicit
-// control z (the closing loop only).
 const CH5_ARCS = [
-  // Institutes -> Innovations: four asymmetric strands
-  { from:'Institutes',  to:'Innovations', z0: 1.40, z1: 0.96, skew: 1.50, bow:0.68 },
-  { from:'Institutes',  to:'Innovations', z0: 1.30, z1:-0.36, skew: 0.96, bow:0.74 },
-  { from:'Institutes',  to:'Innovations', z0: 0.56, z1:-1.08, skew: 0.24, bow:0.85 },
-  { from:'Institutes',  to:'Innovations', z0:-1.48, z1: 0.48, skew: 0.54, bow:0.70 },
-  // Innovations -> BioVentures: four strands converging on z 0
-  { from:'Innovations', to:'BioVentures', z0: 0.96, z1: 0.00, skew: 0.00, bow:0.62 },
-  { from:'Innovations', to:'BioVentures', z0: 0.48, z1: 0.00, skew: 0.00, bow:0.50 },
-  { from:'Innovations', to:'BioVentures', z0:-0.36, z1: 0.00, skew: 0.00, bow:0.62 },
-  { from:'Innovations', to:'BioVentures', z0:-1.08, z1: 0.00, skew: 0.00, bow:0.50 },
-  // the closing hop to the patient dot; cz bulges it into a loop
-  { from:'BioVentures', to:'Patients',    z0: 0.00, z1: 0.00, skew:-0.60, bow:0.00, cz:0.75 },
+  // left pair — outer launches from further out and peaks higher, so they don't overlap
+  { from:'Institutes',  to:'Innovations', z0: 1.35, z1: 0.48, bow:0.85 },
+  { from:'Institutes',  to:'Innovations', z0: 1.20, z1: 0.32, bow:0.70 },
+  // right pair — mirrored
+  { from:'Institutes',  to:'Innovations', z0:-1.35, z1:-0.48, bow:0.85 },
+  { from:'Institutes',  to:'Innovations', z0:-1.20, z1:-0.32, bow:0.70 },
+  // the convergence: four strands in, one point out
+  { from:'Innovations', to:'BioVentures', z0: 0.48, z1: 0.00, bow:0.62 },
+  { from:'Innovations', to:'BioVentures', z0: 0.32, z1: 0.00, bow:0.50 },
+  { from:'Innovations', to:'BioVentures', z0:-0.48, z1: 0.00, bow:0.62 },
+  { from:'Innovations', to:'BioVentures', z0:-0.32, z1: 0.00, bow:0.50 },
+  // leaves the convergence point and hops to the dot; cz bulges it left so it reads as a loop
+  { from:'BioVentures', to:'Patients',    z0: 0.00, z1: 0.00, bow:0.62, cz:0.75 },
 ];
 // Only the connection the CURRENT beat introduces is dashed; ones carried over from earlier
 // beats settle to solid + thin. `cur` eases between the two so it doesn't pop. The dash LENGTH
 // is fixed and the GAP scales with `cur` — `11 0` renders solid, so one value morphs both.
 const CH5_ARC_DASH   = 11;
-const CH5_ARC_STAGGER = 10;   // frames each successive arc in a group waits before easing in
-let CH5_ARC_W_CUR  = 2.0;  // current connection — dashed  (section-5 dev slider)
-let CH5_ARC_W_PAST = 2.0;  // settled connections — solid  (section-5 dev slider)
-CH5_ARCS.forEach((A,i)=>{
+const CH5_ARC_W_CUR  = 5;    // current connection — dashed, heavy
+const CH5_ARC_W_PAST = 2;    // settled connections — solid, thin
+CH5_ARCS.forEach(A=>{
   A.el = document.createElementNS('http://www.w3.org/2000/svg','path');
   A.el.setAttribute('class','ch5-arc');
   A.progress = 0;
   A.cur = 0;
-  A.t = 0;   // frames this arc has been "wanted" — drives the staggered draw-in
-  // position within its from/to group, so arcs in a group cascade in one after another
-  A.staggerOrder = CH5_ARCS.slice(0,i).filter(x=>x.from===A.from && x.to===A.to).length;
   linksSvg.appendChild(A.el);
 });
 // an arc is "current" if this beat has it and the previous beat of the SAME chapter didn't.
@@ -2238,11 +2444,7 @@ function updateCh5Arcs(){
   const B   = OWN ? OWN.beats[OWN.beat] : null;
   CH5_ARCS.forEach(A=>{
     const want = (B && B.links.some(([f,t])=>f===A.from && t===A.to)) ? 1 : 0;
-    // stagger the draw-in: accumulate frames while wanted, and don't start easing until this arc's
-    // turn (staggerOrder). Scrubbing back out (want 0) resets, so it re-cascades on re-entry.
-    A.t = want ? A.t + 1 : 0;
-    const gated = (want && A.t > A.staggerOrder * CH5_ARC_STAGGER) ? 1 : 0;
-    A.progress += (gated - A.progress) * 0.06;
+    A.progress += (want - A.progress) * 0.06;
     A.cur      += ((ch5ArcIsCurrent(A, OWN) ? 1 : 0) - A.cur) * SCENE_EASE;
     // fade with the side view too — these only make sense on the cross-section
     const vis = A.progress * curSide;
@@ -2252,12 +2454,7 @@ function updateCh5Arcs(){
     const yA = ch5NodeY(A.from), yB = ch5NodeY(A.to);
     const p0 = projectToScreen(_av.set(0, yA, A.z0));
     const p2 = projectToScreen(_av.set(0, yB, A.z1));
-    // Peak control point, authored PER-ARC. `skew` moves it off the midpoint (toward launch z0 at
-    // +1, toward landing z1 at -1); `bow` is the peak height above the higher node. Independent per
-    // arc, so the composition is free-form / not mirrored.
-    const baseZ = (A.cz != null) ? A.cz : (A.z0 + A.z1)/2;
-    const ctrlZ = baseZ + (A.skew ?? 0) * (A.z0 - A.z1) * 0.5;
-    const p1 = projectToScreen(_av.set(0, Math.max(yA,yB) + A.bow, ctrlZ));
+    const p1 = projectToScreen(_av.set(0, Math.max(yA,yB) + A.bow, A.cz ?? (A.z0+A.z1)/2));
     const { q1, q2 } = trimQuad(p0, p1, p2, Math.min(1, A.progress));
     A.el.setAttribute('d', `M ${p0.x} ${p0.y} Q ${q1.x} ${q1.y} ${q2.x} ${q2.y}`);
     A.el.style.opacity = vis;
@@ -2299,7 +2496,7 @@ const CH6_LINE = {
   bow: -0.17,     // control point pushed outward, x the launch dot's offset from the axis
   peak:-0.32,     // control height: 0 = at the landing, 1 = at the launch, <0 crests above
   minR: 0.10,     // lines launch only from dots at >= this x the field's design radius
-  w:    1,        // stroke width, screen px  (reference is in design units; this is retuned)
+  w:    1.2,      // stroke width, screen px  (reference is in design units; this is retuned)
   dash: 4,        // dash length (gap matches), screen px
   speed:40,       // px/s the dash pattern flows along the line
   period:2,       // s — each line repeats its draw/hold/trim cycle on this period
@@ -2354,7 +2551,7 @@ function buildCh6Lines(){
   const mkSeg = (fromR, fromI, toR, toI)=>{
     const p = document.createElementNS('http://www.w3.org/2000/svg','path');
     p.setAttribute('fill','none');
-    p.setAttribute('stroke','#000000');   // black connectors on the beige tilted view
+    p.setAttribute('stroke','#FFFFFF');
     p.setAttribute('stroke-linecap','round');
     p.style.opacity = 0;
     linksSvg.appendChild(p);
@@ -2474,7 +2671,7 @@ function updateCh5Card(){
   ch5CardEl.style.left = (regionX + regionW/2) + 'px';
   ch5CardEl.style.top  = (window.innerHeight*0.5) + 'px';
   // drifts up as it comes and goes — same gesture as the chapters 1-4 callouts
-  const drift = (MID - p) * OWN.cardDrift;
+  const drift = (MID - p) * CH5_CARD_DRIFT;
   ch5CardEl.style.transform = `translate(-50%, calc(-50% + ${drift}px))`;
   ch5CardEl.style.opacity = op;
 }
@@ -2489,20 +2686,10 @@ function updateNarrativeUI(si){
   if(railEl){
     railEl.style.opacity = railF;
     // recolor so it reads on white AND on purple:   purple world      <->  white world
-    // paintLightF (not lightFactor) so ch6's beige tilted view gets the light-world rail — a purple
-    // dot with white numerals — then reverts to the white-dot/purple-num rail on the purple close.
-    // section 5 (dark mode): the rail goes white (dots/line) with BLACK numerals — blend the normal
-    // paintLightF mix toward the ch5 target colour (default white) by ch5BlackF.
-    const railCol = (c1,a1,c2,a2, ch5Col=0xffffff, ch5A=null)=>{
-      const c = lerpHex(lerpHex(c1, c2, paintLightF), ch5Col, ch5BlackF);
-      let a = _mix(a1, a2, paintLightF);
-      if(ch5A != null) a = _mix(a, ch5A, ch5BlackF);   // section-5 alpha override
-      return `rgba(${(c>>16)&255},${(c>>8)&255},${c&255},${a.toFixed(3)})`;
-    };
-    railEl.style.setProperty('--rail-dot',    railCol(0xffffff,0.45, 0x654CFF,0.50));
-    railEl.style.setProperty('--rail-active', railCol(0xffffff,1.00, 0x654CFF,1.00));
-    railEl.style.setProperty('--rail-num',    railCol(0x654CFF,1.00, 0xffffff,1.00, 0x000000));
-    railEl.style.setProperty('--rail-line',   railCol(0xffffff,0.18, 0x654CFF,0.10, 0xffffff, 0.55));
+    railEl.style.setProperty('--rail-dot',    rgbaMix(0xffffff,0.45, 0x654CFF,0.50, lightFactor));
+    railEl.style.setProperty('--rail-active', rgbaMix(0xffffff,1.00, 0x654CFF,1.00, lightFactor));
+    railEl.style.setProperty('--rail-num',    rgbaMix(0x654CFF,1.00, 0xffffff,1.00, lightFactor));
+    railEl.style.setProperty('--rail-line',   rgbaMix(0xffffff,0.18, 0x654CFF,0.10, lightFactor));
   }
   const a = si - 1;   // 0-based active chapter (-1 in the hero)
   railItems.forEach((it,i)=>it.classList.toggle('is-active', i===a));
@@ -2530,12 +2717,11 @@ function updateNarrativeUI(si){
   // lerps too — white needs holding back on the purple, but A294FF is already a soft tint on
   // white and reads better solid. `_docH` is cached (refreshed on resize) — scrollHeight
   // forces a reflow, and this runs every frame.
-  scrollTrackEl.style.background = rgbaMix(0xffffff, 0.10, 0xE6E6E6, 1.00, lightFactor);   // light: grey track
-  scrollFillEl.style.background  = rgbaMix(0xffffff, 0.50, 0x757575, 1.00, lightFactor);   // light: grey fill
+  scrollTrackEl.style.background = rgbaMix(0xffffff, 0.10, 0xA294FF, 0.22, lightFactor);
+  scrollFillEl.style.background  = rgbaMix(0xffffff, 0.50, 0xA294FF, 1.00, lightFactor);
   scrollFillEl.style.transform = `scaleX(${Math.max(0, Math.min(1, window.scrollY/_docH))})`;
-  // solid bar matching the page background so scrolling content doesn't show through. Section 5
-  // blends it to black (ch5BlackF) so the nav matches the dark-mode bg instead of staying purple.
-  const bg = lerpHex(P().bg, 0x000000, ch5BlackF);
+  // solid bar matching the page background so scrolling content doesn't show through
+  const bg = P().bg;
   navEl.style.background = `rgb(${(bg>>16)&255},${(bg>>8)&255},${bg&255})`;
 }
 
@@ -2630,25 +2816,6 @@ function frame(){
   // dissolve to purple, not back to white. The handover happens under full photo cover, so the
   // colour swapping underneath is never on screen. Chapter 6 never qualifies — it's already purple.
   bgLightF = ch5PhotoRising ? 1 : lightFactor;
-  // Chapter 6 palette fork. ch6EditF rides the TILTED(0.95)<->TOP(0.001) camera-phi tween: 1 while
-  // tilted (editorial hues + beige), easing to 0 as it rises to the top "Patients are the point"
-  // close (base purple/white). paintLightF drives the MODEL colours; ch6BeigeF eases the background.
-  const inCh6 = !!(OWN && OWN.sceneIdx === 6);
-  const inCh5 = !!(OWN && OWN.sceneIdx === 5);
-  { const TIL = STATE_BY_KEY['Tilted'].phi, TOPP = STATE_BY_KEY['Top'].phi;
-    ch6EditF = inCh6 ? Math.max(0, Math.min(1, (st.phi - TOPP) / (TIL - TOPP))) : 0; }
-  // paintLightF drives the per-layer hues. Editorial (1-4) rides lightFactor exactly; the pinned
-  // chapters force it: ch5 dark mode holds it high so the layers carry their colours, ch6's tilted
-  // beats hold it high and its top close eases it back. Easing only kicks in while pinned, so the
-  // ch4<->ch5<->ch6 handoffs stay smooth without changing chapters 1-4.
-  const pltTarget = inCh6 ? ch6EditF : (inCh5 ? 1 : lightFactor);
-  paintLightF = OWN ? paintLightF + (pltTarget - paintLightF) * SCENE_EASE : lightFactor;
-  ch6BeigeF  += ((inCh6 ? ch6EditF : 0) - ch6BeigeF) * SCENE_EASE;
-  ch6PresF   += ((inCh6 ? 1 : 0) - ch6PresF) * SCENE_EASE;   // patient dot + center line go grey in ch6
-  ch5BlackF  += ((inCh5 ? 1 : 0) - ch5BlackF) * SCENE_EASE;   // section 5: settle the background to black
-  // ch6's decorative square fields: dark grey on the editorial (tilted) beats, fading to white on
-  // the purple close (paintLightF/ch6EditF).
-  ch6Fields.forEach((R)=>{ if(R) R.mat.uniforms.uColor.value.setHex(lerpHex(0xFFFFFF, 0x353535, ch6EditF)); });
   const tgtOutline = (outlineOverride!=null) ? outlineOverride : (SC.outline||0);
   outlineF += (tgtOutline - outlineF)*SCENE_EASE;
   // label colours ride the REAL scene (si) like lightFactor, so they cross with the background
@@ -2705,8 +2872,6 @@ function frame(){
   // model labels — ch6 drops them for the tilted view. The ease starts at the handoff, where the
   // instance is still below the fold, so they're gone before the rising model is really visible.
   labelsOn += (((OWN && OWN.labels === false) ? 0 : 1) - labelsOn)*SCENE_EASE;
-  // sections 1-3 hide the floating layer labels (2 & 3 show the name in the card instead); 4 fades them back
-  editLabelsF += (((si>=1 && si<=3) ? 0 : 1) - editLabelsF)*SCENE_EASE;
 
   curSide = st.side;
   rippleView = st.ripple;
@@ -2944,173 +3109,7 @@ if(!DEV_PIPS) pipWrap.style.display = 'none';
 const HIDE_CURSOR = false;
 if(HIDE_CURSOR) document.documentElement.classList.add('hide-cursor');
 
-// Position the packed copies: the first STROKE_THICK_N of each pool are activated and spread
-// symmetrically across a band centred at (ring radius + STROKE_THICK_OFF), THICK_STEP apart.
-// The rest are parked inactive. updateHighlight reads userData.active to decide what to light.
-function layoutThick(){
-  const N = Math.max(0, Math.min(THICK_POOL, Math.round(STROKE_THICK_N)));
-  layerObjs.forEach(o=>o.discs.forEach(d=>{
-    d.strokeThicks.forEach((c,ti)=>{
-      c.userData.active = ti < N;
-      if(!c.userData.active){ c.visible=false; c.material.opacity=0; return; }
-      const rTarget = d.r + STROKE_THICK_OFF + (ti - (N-1)/2)*THICK_STEP;
-      c.scale.setScalar(rTarget / d.r);
-    });
-  }));
-}
-
-// ---------- DEV: accordion of prototype tuning controls (+ copy/paste of the settings) ----------
-// One panel, several collapsible sections. Multipliers default to 1 (current look); connector
-// widths and fills are absolute. Remove this block and the #devPanel markup once dialed in.
-(function(){
-  const TILT = STATE_BY_KEY['Tilted'];
-  const PANELS = [
-    { title:'Section 5 — side view', rows:[
-      {label:'Base bars',         min:0,   max:5,  step:0.05, get:()=>s5BaseThick,    set:v=>s5BaseThick=v,    fmt:v=>v.toFixed(2)},
-      {label:'Supporting lines',  min:0,   max:5,  step:0.05, get:()=>s5SuppThick,    set:v=>s5SuppThick=v,    fmt:v=>v.toFixed(2)},
-      {label:'Central line',      min:0,   max:6,  step:0.05, get:()=>s5AxisThick,    set:v=>s5AxisThick=v,    fmt:v=>v.toFixed(2)},
-      {label:'Dashed connectors', min:0,   max:12, step:0.5,  get:()=>CH5_ARC_W_CUR,  set:v=>CH5_ARC_W_CUR=v,  fmt:v=>v.toFixed(1)},
-      {label:'Solid connectors',  min:0,   max:10, step:0.5,  get:()=>CH5_ARC_W_PAST, set:v=>CH5_ARC_W_PAST=v, fmt:v=>v.toFixed(1)},
-      {label:'Model width',       min:0.3, max:2.5,step:0.02, get:()=>s5WidthMul,     set:v=>s5WidthMul=v,     fmt:v=>v.toFixed(2)},
-      {label:'Taper (base wider)',min:0,   max:1.5,step:0.02, get:()=>s5Taper,        set:v=>s5Taper=v,        fmt:v=>v.toFixed(2)},
-      {label:'Model height',      min:0.3, max:2.5,step:0.02, get:()=>s5Height,       set:v=>s5Height=v,       fmt:v=>v.toFixed(2)},
-      {label:'Y offset',          min:-3,  max:3,  step:0.05, get:()=>s5YOffset,      set:v=>s5YOffset=v,      fmt:v=>v.toFixed(2)},
-      {label:'Patient dot',       min:0.2, max:4,  step:0.05, get:()=>s5PatDot,       set:v=>s5PatDot=v,       fmt:v=>v.toFixed(2)},
-    ]},
-    { title:'Section 5 — fills', rows:[
-      {label:'Parker (inner)',    min:0,   max:1,  step:0.01, get:()=>s5Fill[0],      set:v=>s5Fill[0]=v,      fmt:v=>v.toFixed(2)},
-      {label:'Network (mid)',     min:0,   max:1,  step:0.01, get:()=>s5Fill[1],      set:v=>s5Fill[1]=v,      fmt:v=>v.toFixed(2)},
-      {label:'Impact (outer)',    min:0,   max:1,  step:0.01, get:()=>s5Fill[2],      set:v=>s5Fill[2]=v,      fmt:v=>v.toFixed(2)},
-    ]},
-    { title:'Section 6 — tilted view', rows:[
-      {label:'Base taper',        min:0,   max:0.6,step:0.02, get:()=>ch6Taper,       set:v=>ch6Taper=v,       fmt:v=>v.toFixed(2)},
-      {label:'Tilt',              min:0.3, max:1.5,step:0.01, get:()=>TILT.phi,       set:v=>TILT.phi=v,       fmt:v=>v.toFixed(2)},
-      {label:'Zoom (dist)',       min:6,   max:18, step:0.1,  get:()=>TILT.radius,    set:v=>TILT.radius=v,    fmt:v=>v.toFixed(1)},
-      {label:'Height',            min:0.5, max:4.5,step:0.05, get:()=>TILT.targetY,   set:v=>TILT.targetY=v,   fmt:v=>v.toFixed(2)},
-      {label:'Rotation',          min:0,   max:1.57,step:0.01,get:()=>TILT.theta,     set:v=>TILT.theta=v,     fmt:v=>v.toFixed(2)},
-    ]},
-  ];
-  const sectionsEl = document.getElementById('devSections');
-  if(!sectionsEl) return;
-  const panes = [];
-  const sliderRow = (label, min, max, step, value)=>{
-    const row = document.createElement('label');
-    row.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:6px;';
-    row.innerHTML = `<span style="width:112px;">${label}</span>`
-      + `<input type="range" min="${min}" max="${max}" step="${step}" value="${value}" style="flex:1;">`
-      + `<span style="width:38px; text-align:right; font-variant-numeric:tabular-nums;"></span>`;
-    return { row, sl: row.querySelector('input'), out: row.querySelector('span:last-child') };
-  };
-  // create a collapsible pane; returns its body element to fill. Exclusive-accordion behaviour.
-  const mkPane = (title)=>{
-    const head = document.createElement('div');
-    head.style.cssText = 'font-weight:600; cursor:pointer; user-select:none; padding:8px 12px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;';
-    head.innerHTML = `<span>${title}</span><span class="cr" style="opacity:.55;">▸</span>`;
-    const body = document.createElement('div');
-    body.style.cssText = 'display:none; padding:8px 12px 10px; border-bottom:1px solid #eee;';
-    const caret = head.querySelector('.cr');
-    head.addEventListener('click', ()=>{
-      const wasOpen = body.style.display !== 'none';
-      panes.forEach(p=>{ p.body.style.display='none'; p.caret.textContent='▸'; });   // exclusive
-      if(!wasOpen){ body.style.display='block'; caret.textContent='▾'; }
-    });
-    panes.push({ body, caret });
-    sectionsEl.appendChild(head); sectionsEl.appendChild(body);
-    return body;
-  };
-  PANELS.forEach(panel=>{
-    const body = mkPane(panel.title);
-    panel.rows.forEach(cfg=>{
-      const { row, sl, out } = sliderRow(cfg.label, cfg.min, cfg.max, cfg.step, cfg.get());
-      const apply = ()=>{ const v=parseFloat(sl.value); cfg.set(v); out.textContent = cfg.fmt(v); };
-      sl.addEventListener('input', apply); apply();
-      body.appendChild(row);
-    });
-  });
-  // ---- per-arc editor: pick an arc, tune its start/end/skew/height independently ----
-  const ARC_FIELDS = [
-    { label:'Start X',    key:'z0',   min:-2,   max:2,   step:0.02, def:0   },
-    { label:'End X',      key:'z1',   min:-2,   max:2,   step:0.02, def:0   },
-    { label:'Peak skew',  key:'skew', min:-1.5, max:1.5, step:0.02, def:0   },
-    { label:'Arc height', key:'bow',  min:0,    max:2.5, step:0.02, def:0.5 },
-  ];
-  {
-    const body = mkPane('Section 5 — arcs (per-arc)');
-    const sel = document.createElement('select');
-    sel.style.cssText = 'width:100%; margin-bottom:8px; padding:4px; font:inherit;';
-    CH5_ARCS.forEach((A,i)=>{
-      const o = document.createElement('option'); o.value = i;
-      o.textContent = `${i+1}. ${A.from.slice(0,5)}→${A.to.slice(0,5)}  (z0 ${A.z0.toFixed(2)})`;
-      sel.appendChild(o);
-    });
-    body.appendChild(sel);
-    const ctrls = ARC_FIELDS.map(f=>{
-      const { row, sl, out } = sliderRow(f.label, f.min, f.max, f.step, f.def);
-      sl.addEventListener('input', ()=>{ const A=CH5_ARCS[+sel.value]; const v=parseFloat(sl.value); A[f.key]=v; out.textContent=v.toFixed(2); });
-      body.appendChild(row);
-      return { f, sl, out };
-    });
-    const loadArc = ()=>{ const A=CH5_ARCS[+sel.value]; ctrls.forEach(c=>{ const v=(A[c.f.key]!=null)?A[c.f.key]:c.f.def; c.sl.value=v; c.out.textContent=(+v).toFixed(2); }); };
-    sel.addEventListener('change', loadArc); loadArc();
-  }
-  // ---- cards (sections 1-4): toggle drag-to-place ----
-  {
-    const body = mkPane('Cards — sections 1-4');
-    const lbl = document.createElement('label');
-    lbl.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer; margin-bottom:4px;';
-    lbl.innerHTML = `<input type="checkbox" style="cursor:pointer;"><span>Drag to place cards</span>`;
-    const cb = lbl.querySelector('input');
-    cb.addEventListener('change', ()=>{ cardEditOn = cb.checked; calloutEl.classList.toggle('editing', cardEditOn); });
-    body.appendChild(lbl);
-    const note = document.createElement('div');
-    note.style.cssText = 'opacity:.6; font-size:11px;';
-    note.textContent = 'Scroll a card into view, then drag it. Offsets appear in Copy settings.';
-    body.appendChild(note);
-  }
-  const buildStr = ()=> PANELS.map(p => p.title + ':\n' + p.rows.map(c=>`  - ${c.label}: ${c.fmt(c.get())}`).join('\n')).join('\n\n')
-    + '\n\nSection 5 — arcs (per-arc):\n' + CH5_ARCS.map((A,i)=>`  ${i+1}. ${A.from}->${A.to}: z0=${A.z0.toFixed(2)} z1=${A.z1.toFixed(2)} skew=${(A.skew??0).toFixed(2)} bow=${A.bow.toFixed(2)}${A.cz!=null?` cz=${A.cz}`:''}`).join('\n')
-    + '\n\nCards (sections 1-4) offsets:\n' + Object.keys(cardOffsets).map(k=>`  ${k}: x=${Math.round(cardOffsets[k].x)} y=${Math.round(cardOffsets[k].y)}`).join('\n');
-  const copyBtn = document.getElementById('devCopy'), out = document.getElementById('devOut');
-  if(copyBtn) copyBtn.addEventListener('click', ()=>{
-    const s = buildStr();
-    if(out) out.value = s;
-    if(navigator.clipboard) navigator.clipboard.writeText(s).catch(()=>{});
-    copyBtn.textContent = 'Copied ✓';
-    setTimeout(()=>{ copyBtn.textContent = 'Copy settings'; }, 1200);
-  });
-  // ---- drag the panel by its title bar ----
-  const panel = document.getElementById('devPanel'), handle = document.getElementById('devDrag');
-  if(panel && handle){
-    let drag=false, sx=0, sy=0, ox=0, oy=0;
-    handle.addEventListener('mousedown', e=>{
-      const r = panel.getBoundingClientRect();
-      panel.style.left = r.left+'px'; panel.style.top = r.top+'px';
-      panel.style.right = 'auto'; panel.style.bottom = 'auto';   // switch to top/left anchoring
-      drag=true; sx=e.clientX; sy=e.clientY; ox=r.left; oy=r.top; e.preventDefault();
-    });
-    window.addEventListener('mousemove', e=>{
-      if(!drag) return;
-      panel.style.left = (ox + e.clientX - sx)+'px';
-      panel.style.top  = (oy + e.clientY - sy)+'px';
-    });
-    window.addEventListener('mouseup', ()=>{ drag=false; });
-  }
-})();
-
-// Dev panels hidden for the live build (code kept). Press the ` (backtick) key to toggle them back.
-(function(){
-  const panels = ['panel','devPanel'].map(id=>document.getElementById(id)).filter(Boolean);
-  panels.forEach(p=>{ p.dataset.devHidden='1'; p.style.display='none'; });
-  window.addEventListener('keydown', e=>{
-    if(e.key !== '`' || e.metaKey || e.ctrlKey || e.altKey) return;
-    if(/^(input|textarea|select)$/i.test(e.target.tagName)) return;
-    const show = panels[0] && panels[0].style.display === 'none';
-    panels.forEach(p=>p.style.display = show ? '' : 'none');
-  });
-})();
-
 // ---------- boot ----------
-layoutThick();
 applyPaletteColors();
 resize();
 onScroll();
