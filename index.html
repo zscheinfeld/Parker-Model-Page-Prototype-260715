@@ -1122,8 +1122,9 @@ const CH5_BEATS = [
   // Beat 4 — the last hop: off the convergence point and up to the patient dot.
   { view:'Side', layout:'ch5full', on:_ON_P, links:[_L_II,_L_NB,_L_BP],
     card:"A Phase 1 study will launch this year in collaboration with CARsgen." },
-  // Beat 5 — no new links; the chapter's close.
-  { view:'Side', layout:'ch5full', on:_ON_P, links:[_L_II,_L_NB,_L_BP],
+  // Beat 5 — the chapter's close + finale. Longer (vh 3.0) so the card holds and the finale motion
+  // has room to play before the transition.
+  { vh:3.0, cardOut:0.82, view:'Side', layout:'ch5full', on:_ON_P, links:[_L_II,_L_NB,_L_BP],
     card:"Dispatch is just one example of how the Parker model works, with an engine built to optimize collaboration, innovation, and commercialization. Clinical trials using Parker IP reached over 700 patients in 2025." },
 ];
 // Chapter 6 — same mechanic. Rises as the cross-section (`arrive:'Side'`) and tilts up into the
@@ -1220,7 +1221,7 @@ const PIN = [
   // cardIn 0.30 — the lines get the first third of each beat to themselves before the card
   // starts. ch5ArcsDrawn() is what actually guarantees the order; this just buys the gesture
   // some scroll-space so the card isn't waiting on the arcs the whole way.
-  pinnedChapter('chapter-5', 5, CH5_BEATS, { arrive:'Expanded', cardVariant:'solid', cardIn:0.30, beatVh:1.2, cardDrift:160 }),
+  pinnedChapter('chapter-5', 5, CH5_BEATS, { arrive:'Expanded', cardVariant:'solid', cardIn:0.30, beatVh:1.8, cardDrift:160 }),
   // CARRIES ch5's model: no exit, no second instance, no opener. It's already sitting there as
   // the cross-section, and beat 0 just tilts it up. lead/enter 0 so the beats start the moment
   // the chapter's top lands, and no `arrive` — beat 0's view is live immediately.
@@ -1717,6 +1718,7 @@ function updateCamera(st){
 
 // ---------- DOM labels ----------
 const SIDE_LABEL_DY = 30;   // side view: how far the label sits UNDER its bar (px)
+const SIDE_TITLE_TOP = 0.15;   // side view: "Our Model in Action" title, as a fraction of viewport height
 // The Patients label is the exception — it tracks the DOT, not a bar edge. Eyeball knobs.
 const SIDE_PATIENT_GAP = 102;   // px between the label's right edge and the dot
 const SIDE_PATIENT_DY  = 4;     // px below the dot's centre (raised 12px from 16)
@@ -1724,6 +1726,9 @@ const labelEls = {};
 function makeLabel(cls,html){ const d=document.createElement('div'); d.className=cls; d.innerHTML=html; document.body.appendChild(d); return d; }
 LAYERS.forEach(L=>{ labelEls[L.name]=makeLabel('layer-label',L.name); });
 const patientLabel = makeLabel('layer-label patient-label','Patients');
+// Side-view section title — visible while the Dispatch story builds, swaps out for "Patients"
+// once the BioVentures->Patients hop lights ("A Phase 1 study..." card). Same face as .patient-label.
+const modelTitleEl = makeLabel('model-title', 'Our Model<br>in Action<span class="rule"></span>');
 const qtyLabel = makeLabel('qty-label','<span class="num">0</span><span class="cap"></span>');
 
 // ---------- adjustable label offsets (screen-space px per layer) ----------
@@ -1874,6 +1879,13 @@ function updateLabels(st){
   const _iw = new THREEc.Vector3(); layerObjs[0].group.getWorldPosition(_iw);
   const instBarHalf = BASE_R * layerObjs[0].def.scale * (layerObjs[0].curSize ?? 1) * s5WidthMul * (1 + s5Taper);
   const instLeftX = projectToScreen(new THREEc.Vector3(0, _iw.y, _iw.z + instBarHalf)).x;
+  // Side-view "Our Model in Action" title: aligned with the label column, near the top. Visible while
+  // the side view is up and the patient isn't lit yet; fades out as modelPatOn ramps (beat 4 card).
+  if(modelTitleEl){
+    modelTitleEl.style.left = instLeftX + 'px';
+    modelTitleEl.style.top  = (window.innerHeight * SIDE_TITLE_TOP) + 'px';
+    modelTitleEl.style.opacity = curSide * (1 - modelPatOn) * labelsOn;
+  }
   layerObjs.forEach((o,li)=>{
     const el=labelEls[o.def.name];
     const wp=new THREEc.Vector3(); o.group.getWorldPosition(wp);
@@ -1912,7 +1924,7 @@ function updateLabels(st){
   const pTop  = lerp(ps.y - 18 + poff.y*(1-curSide), pDot.y + SIDE_PATIENT_DY, curSide);
   patientLabel.style.left=pLeft+'px'; patientLabel.style.top=pTop+'px';
   patientLabel.style.background=labelBg; patientLabel.style.color=labelFg;
-  patientLabel.style.opacity=((patient.visible && ps.z<1)?1:0) * _mix(CH5_DIM, 1, modelPatOn) * labelsOn;
+  patientLabel.style.opacity=((patient.visible && ps.z<1)?1:0) * modelPatOn * labelsOn;   // 0 until the patient is lit (beat 4)
   if(labelEditOn) patientLabel.querySelector('.loff').textContent = ` (${Math.round(poff.x)}, ${Math.round(poff.y)})`;
 
   // quantity label near the highlighted qty layer
@@ -2237,16 +2249,90 @@ function trimQuad(p0,p1,p2,tt){
   return { q1:a, q2:{ x:_mix(a.x,b.x,tt), y:_mix(a.y,b.y,tt) } };
 }
 const _av = new THREEc.Vector3();
+// ---------- section-5 finale: procedural animated arcs (trim on/off, staggered) ----------
+// A pool of curves connecting the three layer pairs, each drawing ON then OFF on its own phase, so
+// the motion never happens in sync. Kicks in on the last card ("Dispatch is just one example...").
+// Everything is tunable from the dev panel; # curves rebuilds the pool, the rest are live.
+const FIN_PAIRS = [['Institutes','Innovations'], ['Innovations','BioVentures'], ['BioVentures','Patients']];
+const FIN_BOW_BASE = 0.45;   // base peak height; height-var adds to this
+const FIN_WINDOW = 0.25;     // per-line fade fraction of the finaleVis ramp — the rest (0.75) is stagger spread
+const FIN_RATE = 0.0058;    // per-frame LINEAR ramp (slower so both wider staggers keep the gap timing)
+const FIN_OUT_END = 0.44;   // Dispatch fade-out finishes here — ~25% more spread than before
+const FIN_IN_START = 0.59;  // finale lines start fading IN here — both fade-out and fade-in are ~25% more spread
+let finN = 10;          // number of curves
+let finPosVar = 1.45;   // launch/landing z spread across the bars
+let finHeightVar = 0.50;// peak-height spread
+let finSpeed = 0.50;    // cycle rate (draw on + off per ~1/speed seconds)
+let finOffset = 0.50;   // how far the curves' phases spread (0 = all in sync)
+let finPatMin = 0.24;   // BioVentures->Patients: min launch distance from the centre line
+let finPreview = false; // dev: show across the whole side view for tuning (else only the finale card)
+let finaleVis = 0;      // eased on/off gate; multiplied by curSide at draw time
+const finaleArcs = [];
+const _fav = new THREEc.Vector3();
+function buildFinaleArcs(){
+  const N = Math.max(0, Math.round(finN));
+  while(finaleArcs.length < N){
+    const i = finaleArcs.length;
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('class','ch5-arc'); p.style.opacity = 0;
+    linksSvg.appendChild(p);
+    finaleArcs.push({ el:p, pair:i % FIN_PAIRS.length,
+      rz0:Math.random()*2-1, rz1:Math.random()*2-1, rbow:Math.random(),
+      phase:Math.random(), dashed:Math.random()<0.5, w:1+Math.random()*1.4 });
+  }
+  while(finaleArcs.length > N){ finaleArcs.pop().el.remove(); }
+}
+function updateFinaleArcs(now){
+  const gate = finaleVis * curSide;
+  if(gate < 0.005){ for(const a of finaleArcs) a.el.style.opacity = 0; return; }
+  // per-layer width factor from the taper: Institutes widest, BioVentures narrowest, Innovations mid
+  const finWF = n => { const li = LAYERS.findIndex(L=>L.name===n); return li<0 ? 1 : (1 + s5Taper*(1-li)); };
+  const N = finaleArcs.length;
+  finaleArcs.forEach((a,j)=>{
+    const [from,to] = FIN_PAIRS[a.pair];
+    // launch/landing spread scales with the source/target bar width
+    const spread0 = finPosVar * finWF(from);
+    let z0 = a.rz0 * spread0;
+    if(to === 'Patients' && finPatMin > 0){   // keep BioVentures->Patients launches ≥ finPatMin from centre
+      z0 = (a.rz0 >= 0 ? 1 : -1) * (finPatMin + Math.abs(a.rz0) * Math.max(0, spread0 - finPatMin));
+    }
+    const z1 = (to === 'Patients') ? 0 : a.rz1 * finPosVar * finWF(to);   // arcs to the patient converge on the centre dot
+    const bow = FIN_BOW_BASE + a.rbow * finHeightVar;
+    const yA = ch5NodeY(from), yB = ch5NodeY(to);
+    const p0 = projectToScreen(_fav.set(0, yA, z0));
+    const p2 = projectToScreen(_fav.set(0, yB, z1));
+    const p1 = projectToScreen(_fav.set(0, Math.max(yA,yB)+bow, (z0+z1)/2));
+    // per-arc cycle: draw in [0,0.45], hold [0.45,0.55], draw out [0.55,1]
+    const t = (((now/1000)*finSpeed + a.phase*finOffset) % 1 + 1) % 1;
+    const head = easeInOut(Math.min(1, t/0.45));
+    const tail = easeInOut(Math.max(0, (t-0.55)/0.45));
+    if(head - tail < 0.002){ a.el.style.opacity = 0; return; }
+    const s = subQuad(p0, p1, p2, tail, head);
+    a.el.setAttribute('d', `M ${s.a.x.toFixed(1)} ${s.a.y.toFixed(1)} Q ${s.b.x.toFixed(1)} ${s.b.y.toFixed(1)} ${s.c.x.toFixed(1)} ${s.c.y.toFixed(1)}`);
+    a.el.setAttribute('stroke-width', a.w.toFixed(2));
+    a.el.setAttribute('stroke-dasharray', a.dashed ? '6 6' : 'none');
+    // staggered entrance: the lines fade in one after another (not all at once) as finaleVis ramps
+    const jFrac = N > 1 ? j / (N - 1) : 0;
+    const fvIn = Math.max(0, (finaleVis - FIN_IN_START) / (1 - FIN_IN_START));   // finale fades in AFTER the gap
+    const entrance = Math.max(0, Math.min(1, (fvIn - jFrac * (1 - FIN_WINDOW)) / FIN_WINDOW));
+    a.el.style.opacity = entrance * curSide;
+  });
+}
+
 function updateCh5Arcs(){
   const OWN = pinOwner >= 0 ? PIN[pinOwner] : null;
   const B   = OWN ? OWN.beats[OWN.beat] : null;
-  CH5_ARCS.forEach(A=>{
+  CH5_ARCS.forEach((A,i)=>{
     const want = (B && B.links.some(([f,t])=>f===A.from && t===A.to)) ? 1 : 0;
     // stagger the draw-in: accumulate frames while wanted, and don't start easing until this arc's
     // turn (staggerOrder). Scrubbing back out (want 0) resets, so it re-cascades on re-entry.
     A.t = want ? A.t + 1 : 0;
     const gated = (want && A.t > A.staggerOrder * CH5_ARC_STAGGER) ? 1 : 0;
-    A.progress += (gated - A.progress) * 0.06;
+    // trim the Dispatch arcs out as the finale takes over — staggered per arc so they don't all go at once
+    const iFrac = CH5_ARCS.length > 1 ? i / (CH5_ARCS.length - 1) : 0;
+    const fvOut = Math.min(1, finaleVis / FIN_OUT_END);   // Dispatch fades out in the FIRST part of the ramp
+    const dOut = Math.max(0, Math.min(1, (fvOut - iFrac * (1 - FIN_WINDOW)) / FIN_WINDOW));
+    A.progress += (gated * (1 - dOut) - A.progress) * 0.06;
     A.cur      += ((ch5ArcIsCurrent(A, OWN) ? 1 : 0) - A.cur) * SCENE_EASE;
     // fade with the side view too — these only make sense on the cross-section
     const vis = A.progress * curSide;
@@ -2458,16 +2544,19 @@ function updateCh5Card(){
   if(!B || !B.card){ ch5CardEl.style.opacity = 0; return; }
   const p   = OWN.beatP;
   const IN  = OWN.cardIn;                        // how far into the beat the card starts
-  const MID = (IN + CH5_CARD_OUT) / 2;           // drift pivot — follows the window
+  const OUT = B.cardOut ?? CH5_CARD_OUT;         // per-beat override (longer beats can exit their card earlier)
+  const MID = (IN + OUT) / 2;                    // drift pivot — follows the window
   let op = Math.max(0, Math.min((p-IN)/CH5_CARD_RAMP,
-                                (CH5_CARD_OUT-p)/CH5_CARD_RAMP, 1));   // in, hold, out
+                                (OUT-p)/CH5_CARD_RAMP, 1));   // in, hold, out
   // ...and hold it back until this beat's LINES have finished drawing, so you always watch the
   // connection form before the copy arrives. `cardIn` alone can't guarantee that: it's measured
   // in SCROLL, while the arc draw-in is an eased clock (0.06/frame, ~0.8s), so a quick scroll
   // would blow past the delay and land the card on half-drawn arcs. Gating on the arcs' own
   // progress makes the order hold at any scroll speed. Only the arcs THIS beat asks for count,
   // and a beat with no links (the arrival) is trivially ready.
-  op *= ch5ArcsDrawn(B);
+  // Bypass the arcs-drawn gate once the finale is active: the finale trims those same arcs back out
+  // (progress -> 0), which would otherwise drag this last card down with them. By then they're long drawn.
+  op *= (finaleVis > 0.005 ? 1 : ch5ArcsDrawn(B));
   if(op < 0.01){ ch5CardEl.style.opacity = 0; return; }
   ch5CardEl.innerHTML = B.card;
   // ch5 = solid purple + outlined, ch6 = frosted. Guarded: assigning className forces a recalc.
@@ -2557,6 +2646,14 @@ function frame(){
   const effSi = OWN ? OWN.sceneIdx : Math.min(si, 4);
   const SC    = SCENES[effSi];
   const BEAT  = OWN ? OWN.beats[OWN.beat] : null;
+  // section-5 finale: on the last beat ("Dispatch is just one example..."), ramped PROGRESSIVELY and
+  // SCRUBBED TO SCROLL over beatP 0.50->0.78 (after the card appears). This crossfades the Dispatch arcs
+  // out and the finale lines in with your scroll instead of an abrupt trigger. Preview forces it on.
+  // Time-based smooth ramp once the last card has appeared (beatP past the card) — not scroll-scrubbed.
+  // The per-arc stagger (in the arc loops) offsets the fade-out/in so they don't all happen at once.
+  const atFinale = !!(OWN && OWN.sceneIdx === 5 && OWN.beat === CH5_BEATS.length - 1 && OWN.beatP > 0.50);
+  const finTgt = (atFinale || finPreview) ? 1 : 0;
+  finaleVis += Math.max(-FIN_RATE, Math.min(FIN_RATE, finTgt - finaleVis));   // LINEAR, even-paced ramp
 
   // Instance swap: fires at each pinned chapter's top edge, where the outgoing model is off the
   // top and the incoming one is off the bottom. Nothing is on screen, so snap (don't ease).
@@ -2715,6 +2812,7 @@ function frame(){
   updateRoses(effSi);
   updateLinks(si);
   updateCh5Arcs();
+  updateFinaleArcs(now);
   updateCh6Lines(now);   // after updateRoses — it reads the fields' live dot positions
   updateCh5Card();
   updateNarrativeUI(si);
@@ -3060,7 +3158,31 @@ function layoutThick(){
     note.textContent = 'Scroll a card into view, then drag it. Offsets appear in Copy settings.';
     body.appendChild(note);
   }
+  // ---- Section 5 finale (procedural animated arcs) ----
+  {
+    const body = mkPane('Section 5 — finale');
+    const FIN = [
+      {label:'# curves',      min:0, max:60,  step:1,    get:()=>finN,        set:v=>{finN=v; buildFinaleArcs();}, fmt:v=>v.toFixed(0)},
+      {label:'Position var',  min:0, max:2,   step:0.05, get:()=>finPosVar,   set:v=>finPosVar=v,   fmt:v=>v.toFixed(2)},
+      {label:'Height var',    min:0, max:1.5, step:0.05, get:()=>finHeightVar,set:v=>finHeightVar=v,fmt:v=>v.toFixed(2)},
+      {label:'Speed',         min:0, max:3,   step:0.05, get:()=>finSpeed,    set:v=>finSpeed=v,    fmt:v=>v.toFixed(2)},
+      {label:'Motion offset', min:0, max:3,   step:0.05, get:()=>finOffset,   set:v=>finOffset=v,   fmt:v=>v.toFixed(2)},
+      {label:'Patient min dist',min:0,max:1.5,step:0.02, get:()=>finPatMin,   set:v=>finPatMin=v,   fmt:v=>v.toFixed(2)},
+    ];
+    FIN.forEach(cfg=>{
+      const { row, sl, out } = sliderRow(cfg.label, cfg.min, cfg.max, cfg.step, cfg.get());
+      const apply = ()=>{ const v=parseFloat(sl.value); cfg.set(v); out.textContent = cfg.fmt(v); };
+      sl.addEventListener('input', apply); apply();
+      body.appendChild(row);
+    });
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:4px;';
+    lbl.innerHTML = `<input type="checkbox" style="cursor:pointer;"><span>Preview across whole side view</span>`;
+    lbl.querySelector('input').addEventListener('change', e=>{ finPreview = e.target.checked; });
+    body.appendChild(lbl);
+  }
   const buildStr = ()=> PANELS.map(p => p.title + ':\n' + p.rows.map(c=>`  - ${c.label}: ${c.fmt(c.get())}`).join('\n')).join('\n\n')
+    + `\n\nSection 5 — finale:\n  # curves=${Math.round(finN)} posVar=${finPosVar.toFixed(2)} heightVar=${finHeightVar.toFixed(2)} speed=${finSpeed.toFixed(2)} offset=${finOffset.toFixed(2)} patientMinDist=${finPatMin.toFixed(2)}`
     + '\n\nSection 5 — arcs (per-arc):\n' + CH5_ARCS.map((A,i)=>`  ${i+1}. ${A.from}->${A.to}: z0=${A.z0.toFixed(2)} z1=${A.z1.toFixed(2)} skew=${(A.skew??0).toFixed(2)} bow=${A.bow.toFixed(2)}${A.cz!=null?` cz=${A.cz}`:''}`).join('\n')
     + '\n\nCards (sections 1-4) offsets:\n' + Object.keys(cardOffsets).map(k=>`  ${k}: x=${Math.round(cardOffsets[k].x)} y=${Math.round(cardOffsets[k].y)}`).join('\n');
   const copyBtn = document.getElementById('devCopy'), out = document.getElementById('devOut');
@@ -3103,6 +3225,7 @@ function layoutThick(){
 })();
 
 // ---------- boot ----------
+buildFinaleArcs();
 layoutThick();
 applyPaletteColors();
 resize();

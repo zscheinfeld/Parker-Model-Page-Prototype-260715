@@ -205,8 +205,7 @@
   }
   .rail-item:hover::before { background: var(--rail-active); }   /* fully saturated on hover */
   .rail-item.is-active::before { transform: translate(-50%,-50%) scale(1); background: var(--rail-active); }
-  .rail-item .num { position: relative; z-index: 1; opacity: 0; transition: opacity .2s ease; }
-  .rail-item.is-active .num { opacity: 1; }
+  .rail-item .num { display: none; }   /* numbers removed — the rail is dots only */
   .chapters-col { grid-column: 1 / span 4; grid-row: 1; padding-left: 60px; }
   .chapter { min-height: 100vh; display: flex; align-items: center; }
   /* chapters with a context callout get extra scroll; the copy pins so the text
@@ -238,7 +237,7 @@
      of hold at the end. (the 45vh lead-in above is INSIDE this, before the chapter's top
      reaches 0). The 110vh is what holds the full-bleed opener photo on after the copy has gone —
      it's CH5_LEAD * 100; change one and the other has to follow. */
-  #chapter-5 { grid-row: 2; min-height: 840vh; }   /* 1.1 lead + 1.0 rise + 5.2vh of beats */
+  #chapter-5 { grid-row: 2; min-height: 1460vh; }   /* 1.1 lead + 1.0 rise + 11.4vh of beats (beat 5 = 3.0) + 1.1 hold */
   /* position:relative so .ch6-outro can place against it. No lead and no rise — it CARRIES ch5's
      model rather than raising its own — so it's just 400vh of beats, then 60vh for the outro to
      rise over the model; 560vh puts the footer's top edge at the viewport bottom exactly as the
@@ -325,6 +324,14 @@
     font-family: var(--xcond); font-weight: 800;
     text-transform: uppercase; font-size: 36px; letter-spacing: -0.01em;
   }
+  /* side-view section title — same all-caps face as .patient-label, left-aligned with a hairline */
+  .model-title {
+    position: fixed; z-index: 5; pointer-events: none; display: inline-block;
+    font-family: var(--xcond); font-weight: 800; text-transform: uppercase;
+    font-size: 36px; line-height: 90%; letter-spacing: -0.01em;
+    color: #ffffff; opacity: 0; transition: opacity .25s ease;
+  }
+  .model-title .rule { display: block; height: 1px; background: #ffffff; margin-top: 14px; }
   .layer-label.editable { pointer-events: auto; cursor: move; outline: 1px dashed var(--accent); outline-offset: 3px; }
   .layer-label .loff { display: none; }
   .layer-label.editable .loff { display: inline; margin-left: 6px; font-size: 12px; font-weight: 400; opacity: .75; }
