@@ -1111,7 +1111,7 @@ const CH5_BEATS = [
   { vh:1.2, view:'Side', layout:'ch5full', on:_ON_I, links:[], card:null },
   // Beat 1 — four institutes, four strands.
   { view:'Side', layout:'ch5full', on:_ON_I, links:[_L_II],
-    card:"The origins of our recent BioVentures portfolio build, Dispatch Bio, emerged from four separate Parker Institutes: Penn, Stanford, UCSF, and Memorial Sloan Kettering." },
+    card:"The origins of our recent BioVentures portfolio build, <strong>Dispatch Bio</strong>, emerged from four separate Parker Institutes: Penn, Stanford, UCSF, and Memorial Sloan Kettering." },
   // Beat 2 — the strands converge into one company on the BioVentures bar.
   { view:'Side', layout:'ch5full', on:_ON_B, links:[_L_II,_L_NB],
     card:"Discoveries from each research team contributed to a set of complementary IP, which we realized would benefit from becoming a spin-off company to expedite clinical trials." },
@@ -1125,7 +1125,7 @@ const CH5_BEATS = [
   // Beat 5 — the chapter's close + finale. Longer (vh 3.0) so the card holds and the finale motion
   // has room to play before the transition.
   { vh:3.0, cardOut:0.82, view:'Side', layout:'ch5full', on:_ON_P, links:[_L_II,_L_NB,_L_BP],
-    card:"Dispatch is just one example of how the Parker model works, with an engine built to optimize collaboration, innovation, and commercialization. Clinical trials using Parker IP reached over 700 patients in 2025." },
+    card:"<strong>Dispatch</strong> is just one example of how the Parker model works, with an engine built to optimize collaboration, innovation, and commercialization. Clinical trials using Parker IP reached over 700 patients in 2025." },
 ];
 // Chapter 6 — same mechanic. Rises as the cross-section (`arrive:'Side'`) and tilts up into the
 // stacked model once it pins, then walks the three SUB-layers (SUBS: Parker / Network / Impact),
@@ -2617,8 +2617,11 @@ function updateNarrativeUI(si){
   scrollFillEl.style.transform = `scaleX(${Math.max(0, Math.min(1, window.scrollY/_docH))})`;
   // solid bar matching the page background so scrolling content doesn't show through. Section 5
   // blends it to black (ch5BlackF) so the nav matches the dark-mode bg instead of staying purple.
+  // On the opening screen (top of page) it stays transparent so the hero "Our Model" eyebrow isn't
+  // covered; it fades to solid over the first half-viewport of scroll.
   const bg = lerpHex(P().bg, 0x000000, ch5BlackF);
-  navEl.style.background = `rgb(${(bg>>16)&255},${(bg>>8)&255},${bg&255})`;
+  const navA = Math.max(0, Math.min(1, window.scrollY / (window.innerHeight * 0.5)));
+  navEl.style.background = `rgba(${(bg>>16)&255},${(bg>>8)&255},${bg&255},${navA})`;
 }
 
 // ============================================================
